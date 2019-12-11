@@ -10,14 +10,18 @@
 #define _MODEL_H
 
 #include "utils.h"
-#include <unordered_map>
 
 typedef struct DocEntry_ {
     uint32 docid;
-    uint64 idx;
+    uint32 idx;
     uint32 num_words;
-    uint32 num_common_words;
+    uint32 *topic_dist; // size is num_topic + 1
 } DocEntry;
+
+void docEntryInit(DocEntry *doc_entry, uint32 docid, uint32 num_topics);
+void docEntryDestory(DocEntry *doc_entry);
+uint32 getDocTopicCnt(DocEntry *doc_entry, int topicid);
+void addDocTopicCnt(DocEntry *doc_entry, int topicid, int delta);
 
 typedef struct WordEntry_ {
     uint32 wordid;
@@ -26,13 +30,13 @@ typedef struct WordEntry_ {
 
 typedef struct TopicEntry_ {
     int topicid;
-    uint64 num_words;
-    std::unordered_map<uint32, uint64> *word_lookup;
+    uint32 num_words;
+    uint32 *word_dist; // size is vocab_size
 } TopicEntry;
 
-void topicEntryInit(TopicEntry *topic_entry, int topicid);
+void topicEntryInit(TopicEntry *topic_entry, int topicid, uint32 vocab_size);
 void topicEntryDestory(TopicEntry *topic_entry);
-int getTopicWordCnt(TopicEntry *topic_entry, uint32 wordid);
-void setTopicWordCnt(TopicEntry *topic_entry, uint32 wordid, uint64 newval);
+uint32 getTopicWordCnt(TopicEntry *topic_entry, uint32 wordid);
+void addTopicWordCnt(TopicEntry *topic_entry, uint32 wordid, int delta);
 
 #endif //MODEL_H

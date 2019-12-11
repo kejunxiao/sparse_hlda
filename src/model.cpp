@@ -10,28 +10,60 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <unordered_map>
 
-void topicEntryInit(TopicEntry *topic_entry, int topicid) {
-    topic_entry->topicid = topicid;
-    topic_entry->num_words = 0;
-    if (NULL == (topic_entry->word_lookup = new std::unordered_map<uint32, uint64>())) {
-        fprintf(stderr, "ERROR: create hash table for topic_entry fail");
+void docEntryInit(DocEntry *doc_entry, uint32 docid, uint32 num_topics) {
+    uint32 a;
+
+    doc_entry->docid = docid;
+    doc_entry->idx = 0;
+    doc_entry->num_words = 0;
+    if (NULL == (doc_entry->topic_dist = (uint32 *)calloc(num_topics + 1, sizeof(uint32)))) {
+        fprintf(stderr, "ERROR: allocate memory for doc-topic distribution fail\n");
         exit(1);
     }
+    for (a = 0; a < num_topics + 1; a++) doc_entry->topic_dist[a] = 0;
+}
+
+void docEntryDestory(DocEntry *doc_entry) {
+    free(doc_entry->topic_dist);
+}
+
+uint32 getDocTopicCnt(DocEntry *doc_entry, int topicid) {
+    return doc_entry->topic_dist[topicid];
+}
+
+void addDocTopicCnt(DocEntry *doc_entry, int topicid, int delta) {
+    if ((long long)doc_entry->topic_dist[topicid] < -delta ) {
+        fprintf(stderr, "ERROR: after modeified(delta = %d), topic %d count(%d) in doc %d < 0\n", delta, topicid, doc_entry->topic_dist[topicid], doc_entry->docid);
+        exit(1);
+    }
+    doc_entry->topic_dist[topicid] += delta;
+}
+
+void topicEntryInit(TopicEntry *topic_entry, int topicid, uint32 vocab_size) {
+    uint32 a;
+
+    topic_entry->topicid = topicid;
+    topic_entry->num_words = 0;
+    if (NULL == (topic_entry->word_dist = (uint32 *)calloc(vocab_size, sizeof(uint32)))) {
+        fprintf(stderr, "ERROR: allocate memory for topic-word distribution fail\n");
+        exit(1);
+    }
+    for (a = 0; a < vocab_size; a++) topic_entry->word_dist[a] = 0;
 }
 
 void topicEntryDestory(TopicEntry *topic_entry) {
-    topic_entry->num_words = 0;
-    delete topic_entry->word_lookup;
+    free(topic_entry->word_dist);
 }
 
-int getTopicWordCnt(TopicEntry *topic_entry, uint32 wordid) {
-    std::unordered_map<uint32, uint64>::iterator itr = topic_entry->word_lookup->find(wordid);
-    if (itr != topic_entry->word_lookup->end()) return itr->second;
-    else return 0;
+uint32 getTopicWordCnt(TopicEntry *topic_entry, uint32 wordid) {
+    return topic_entry->word_dist[wordid];
 }
 
-void setTopicWordCnt(TopicEntry *topic_entry, uint32 wordid, uint64 newval) {
-    (*(topic_entry->word_lookup))[wordid] = newval;
+void addTopicWordCnt(TopicEntry *topic_entry, uint32 wordid, int delta) {
+    if ((long long)topic_entry->word_dist[wordid] < -delta) {
+        fprintf(stderr, "ERROR: after modeified(delta = %d), word %d count(%lld) in topic %d < 0\n", delta, wordid, topic_entry->word_dist[wordid], topic_entry->topicid);
+        exit(1);
+    }
+    topic_entry->word_dist[wordid] += delta;
 }
