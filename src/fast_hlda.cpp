@@ -26,6 +26,7 @@ real beta = 0.01;
 real gamma0 = 0.1;
 real beta2 = 0.01;
 uint32 num_iters = 20;
+int save_step = -1;
 
 // train data related
 uint32 num_docs = 0;
@@ -357,6 +358,7 @@ void saveModel(uint32 suffix) {
             if (cnt > 0) {
                 getWordFromId(word_entry->wordid, word_str);
                 fprintf(fout, " %s:%d", word_str, cnt);
+                memset(word_str, 0, MAX_STRING);
             }
         }
         fprintf(fout, "\n");
@@ -374,6 +376,7 @@ void saveModel(uint32 suffix) {
             word_entry = &word_entries[doc_entry->idx + b];
             getWordFromId(word_entry->wordid, word_str);
             fprintf(fout, " %s:1:%d", word_str, word_entry->topicid);
+            memset(word_str, 0, MAX_STRING);
         }
         fprintf(fout, "\n");
     }
@@ -405,6 +408,8 @@ int main(int argc, char **argv) {
         printf("\t\"common topic\"-word prior probability, default is 0.01\n");
         printf("-num_iters <int>\n");
         printf("\tnumber of iteration, default is 20\n");
+        printf("-save_step <int>\n");
+        printf("\tsave model every save_step iteration, default is -1 (no save)\n");
         return -1;
     }
 
@@ -433,6 +438,9 @@ int main(int argc, char **argv) {
     if ((a = argPos((char *)"-num_iters", argc, argv)) > 0) {
         num_iters = atoi(argv[a + 1]);
     }
+    if ((a = argPos((char *)"-save_step", argc, argv)) > 0) {
+        save_step = atoi(argv[a + 1]);
+    }
 
 
     // load documents and allocate memory for entries
@@ -442,9 +450,9 @@ int main(int argc, char **argv) {
     // gibbs sampling
     printf("start train LDA:\n");
     for (a = 0; a < num_iters; a++) {
+        if (save_step > 0 && a % save_step == 0) saveModel(a);
         sec1 = time(NULL);
         gibbsSample();
-        if (a % 10 == 0) saveModel(a);
         sec2 = time(NULL);
         printf("iter %d done, take %d second\n", a, sec2 - sec1);
     }
