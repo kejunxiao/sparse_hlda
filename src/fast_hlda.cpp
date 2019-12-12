@@ -243,9 +243,9 @@ void loadDocs() {
     }
 }
 
-void gibbsSample() {
+void gibbsSample(uint32 round) {
     uint32 a, b;
-    int t;
+    int t, sec;
     real Kalpha, smooth, dt, tw, spec_topic_r, s_spec, s_comm, r, s, *sbucket, *dbucket, *tbucket;
     DocEntry *doc_entry;
     WordEntry *word_entry;
@@ -256,10 +256,12 @@ void gibbsSample() {
     tbucket = (real *)calloc(num_topics, sizeof(real));
 
     smooth = initS(sbucket);
+    sec = time(NULL);
     for (a = 0; a < num_docs; a++) {
         if (a % 1000 == 0) {
-            printf("%dK%c", a / 1000, 13);
+            printf("%cProcess: %.2f%% Documents/Sec: %.2fK", 13, (round + a * 1. / num_docs) / num_iters, 1. / (time(NULL) - sec));
             fflush(stdout);
+            sec = time(NULL);
         }
         doc_entry = &doc_entries[a];
         dt = initD(dbucket, doc_entry);
@@ -451,7 +453,7 @@ int main(int argc, char **argv) {
     for (a = 0; a < num_iters; a++) {
         if (save_step > 0 && a % save_step == 0) saveModel(a);
         sec1 = time(NULL);
-        gibbsSample();
+        gibbsSample(a);
         sec2 = time(NULL);
         printf("iter %d done, take %d second\n", a, sec2 - sec1);
     }
