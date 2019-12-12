@@ -32,7 +32,7 @@ uint32 getDocTopicCnt(DocEntry *doc_entry, int topicid) {
 
 void addDocTopicCnt(DocEntry *doc_entry, int topicid, int delta) {
     if ((long long)doc_entry->topic_dist[topicid] < -delta ) {
-        fprintf(stderr, "ERROR: after modeified(delta = %d), topic %d count(%d) in doc %d < 0\n", delta, topicid, doc_entry->topic_dist[topicid], doc_entry->docid);
+        fprintf(stderr, "ERROR: after modeified (delta = %d), topic %d (count = %d) in doc %d < 0\n", delta, topicid, doc_entry->topic_dist[topicid], doc_entry->docid);
         exit(1);
     }
     doc_entry->topic_dist[topicid] += delta;
@@ -58,7 +58,7 @@ uint32 getTopicWordCnt(TopicEntry *topic_entry, uint32 wordid) {
 
 void addTopicWordCnt(TopicEntry *topic_entry, uint32 wordid, int delta) {
     if ((long long)topic_entry->word_dist[wordid] < -delta) {
-        fprintf(stderr, "ERROR: after modeified(delta = %d), word %d count(%d) in topic %d < 0\n", delta, wordid, topic_entry->word_dist[wordid], topic_entry->topicid);
+        fprintf(stderr, "ERROR: after modeified (delta = %d), word %d (count = %d) in topic %d < 0\n", delta, wordid, topic_entry->word_dist[wordid], topic_entry->topicid);
         exit(1);
     }
     topic_entry->word_dist[wordid] += delta;

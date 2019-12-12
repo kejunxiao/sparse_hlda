@@ -245,7 +245,7 @@ void loadDocs() {
 
 void gibbsSample() {
     uint32 a, b;
-    int c;
+    int t;
     real Kalpha, smooth, dt, tw, spec_topic_r, s_spec, s_comm, r, s, *sbucket, *dbucket, *tbucket;
     DocEntry *doc_entry;
     WordEntry *word_entry;
@@ -279,36 +279,36 @@ void gibbsSample() {
                 r = r / spec_topic_r * (Kalpha + doc_entry->num_words - getDocTopicCnt(doc_entry, num_topics));
                 s = 0;
                 if (r < smooth) {
-                    for (c = 0; c < num_topics; c++) {
-                        s += sbucket[c];
+                    for (t = 0; t < num_topics; t++) {
+                        s += sbucket[t];
                         if (s > r) break;
                     }
                 } else if (r < smooth + dt) {
-                    for (c = 0; c < num_topics; c++) {
-                        if (getDocTopicCnt(doc_entry, c) == 0) continue;
-                        s += dbucket[c];
+                    for (t = 0; t < num_topics; t++) {
+                        if (getDocTopicCnt(doc_entry, t) == 0) continue;
+                        s += dbucket[t];
                         if (s > r) break;
                     }
                 } else {
-                    for (c = 0; c < num_topics; c++) {
-                        if (getTopicWordCnt(&topic_entries[c], word_entry->wordid) == 0) continue;
-                        s += tbucket[c];
+                    for (t = 0; t < num_topics; t++) {
+                        if (getTopicWordCnt(&topic_entries[t], word_entry->wordid) == 0) continue;
+                        s += tbucket[t];
                         if (s > r) break;
                     }
                 }
             } else { // sample in common topic, topicid just num_topics
-                c = num_topics;
+                t = num_topics;
             }
-            if (c != word_entry->topicid) {
-                // update topic-word
-                addTopicWordCnt(&topic_entries[c], word_entry->wordid, 1);
-                // update doc-topic
-                addDocTopicCnt(doc_entry, c, 1);
+            if (t != word_entry->topicid) {
                 // update sparse bucket
-                smooth += updateS(sbucket, word_entry->topicid, c);
-                dt += updateD(dbucket, word_entry->topicid, c, doc_entry);
+                smooth += updateS(sbucket, word_entry->topicid, t);
+                dt += updateD(dbucket, word_entry->topicid, t, doc_entry);
             }
-            word_entry->topicid = c;
+            // update topic-word
+            addTopicWordCnt(&topic_entries[t], word_entry->wordid, 1);
+            // update doc-topic
+            addDocTopicCnt(doc_entry, t, 1);
+            word_entry->topicid = t;
             doc_entry->num_words++;
         }
     }
