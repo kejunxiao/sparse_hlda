@@ -353,10 +353,9 @@ void saveModel(uint32 suffix) {
         if (a == num_topics) fprintf(fout, "common-topic");
         else fprintf(fout, "topic-%d", a);
         for (b = 0; b < vocab_size; b++) {
-            word_entry = &word_entries[b];
-            cnt = getTopicWordCnt(topic_entry, word_entry->wordid);
+            cnt = getTopicWordCnt(topic_entry, b);
             if (cnt > 0) {
-                getWordFromId(word_entry->wordid, word_str);
+                getWordFromId(b, word_str);
                 fprintf(fout, " %s:%d", word_str, cnt);
                 memset(word_str, 0, MAX_STRING);
             }
