@@ -57,9 +57,9 @@ static uint32 getIdFromWord(const char *word) {
     if (itr != word2id.end()) {
         return itr->second;
     } else { 
-        vocab_size++;
         word2id[s] = vocab_size;
         id2word[vocab_size] = s;
+        vocab_size++;
         return vocab_size;
     }
 }
@@ -68,13 +68,76 @@ static int genRandTopicId() { return rand() % num_topics; }
 
 /* sparse LDA process */
 // soomth-only bucket
-static real initS(real *sbucket) {}
+static real initS(real *sbucket) {
+    int a;
+    real smooth = 0, ab = alpha * beta, Vbeta = vocab_size * beta;
+
+    for (a = 0; a < num_topics; a++) {
+        sbucket[a] = ab / (Vbeta + topic_entries[a].num_words);
+        smooth += sbucket[a];
+    }
+    return smooth;
+}
+
+static real updateS(real *sbucket, int oldtid, int newtid) {
+    real delta = 0, tmp = 0, ab = alpha * beta, Vbeta = vocab_size * beta;
+
+    // update old topicid
+    tmp = ab / (Vbeta + topic_entries[oldtid].num_words);
+    delta += tmp - sbucket[oldtid];
+    sbucket[oldtid] = tmp;
+    // update new topicid
+    tmp = ab / (Vbeta + topic_entries[newtid].num_words);
+    delta += tmp - sbucket[newtid];
+    sbucket[newtid] = tmp;
+    return delta;
+}
+
 // doc-topic bucket
-static real initD(real *dbucket, DocEntry *doc_entry) {}
+static real initD(real *dbucket, DocEntry *doc_entry) {
+    int a;
+    real dt = 0, Vbeta = vocab_size * beta;
+
+    for (a = 0; a < num_topics; a++) {
+        if (getDocTopicCnt(doc_entry, a) == 0) continue;
+        dbucket[a] = getDocTopicCnt(doc_entry, a) * beta / (Vbeta + topic_entries[a].num_words);
+        dt += dbucket[a];
+    }
+    return dt;
+}
+
+static real updateD(real *dbucket, int oldtid, int newtid, DocEntry *doc_entry) {
+    real delta = 0, tmp = 0, Vbeta = vocab_size * beta;
+
+    // update old topicid
+    tmp = getDocTopicCnt(doc_entry, oldtid) * beta / (Vbeta + topic_entries[oldtid].num_words);
+    delta += tmp - dbucket[oldtid];
+    dbucket[oldtid] = tmp;
+    // update new topicid
+    tmp = getDocTopicCnt(doc_entry, newtid) * beta / (Vbeta + topic_entries[newtid].num_words);
+    delta += tmp - dbucket[newtid];
+    dbucket[newtid] = tmp;
+    return delta;
+}
+
 // topic-word bucket
-static real initT(real *tbucket, DocEntry *doc_entry, WordEntry *word_entry) {}
+static real initT(real *tbucket, DocEntry *doc_entry, WordEntry *word_entry) {
+    int a;
+    real tw = 0, Vbeta = vocab_size * beta;
+
+    for (a = 0; a < num_topics; a++) {
+        if (getTopicWordCnt(&topic_entries[a], word_entry->wordid) == 0) continue;
+        tbucket[a] = (alpha + getDocTopicCnt(doc_entry, a)) * getTopicWordCnt(&topic_entries[a], word_entry->wordid) / (Vbeta + topic_entries[a].num_words);
+        tw += tbucket[a];
+    }
+    return tw;
+}
+
 // common-word bucket
-static real initComm(WordEntry *word_entry) {}
+static real initComm(WordEntry *word_entry) {
+    real Vbeta2 = vocab_size * beta2;
+    return (getTopicWordCnt(&topic_entries[num_topics], word_entry->wordid) + beta2) / (topic_entries[num_topics].num_words + Vbeta2);
+}
 
 /* public interface */
 void learnVocabFromDocs() {
@@ -97,15 +160,16 @@ void learnVocabFromDocs() {
                 fflush(stdout);
             }
         } else if (ch == ' ') {
+            buf[len] = '\0';
             token = strtok(buf, ":");  // get word-string
             getIdFromWord(token);
             token = strtok(NULL, ":"); // get word-freq
             num_words += atoi(token);
             memset(buf, 0, len);
+            len = 0;
         } else { // append ch to buf
-            len = strlen(buf);
             buf[len] = ch;
-            buf[len + 1] = '\0';
+            len++;
         }
     }
     // allocate memory for doc_entries
@@ -117,7 +181,7 @@ void learnVocabFromDocs() {
     topic_entries = (TopicEntry *)calloc(num_topics + 1, sizeof(TopicEntry));
     for (a = 0; a < num_topics + 1; a++) topicEntryInit(&topic_entries[a], a, vocab_size);
 
-    printf("number of documents: %d, number of words: %lld, vocabulary size: %d\n", num_docs, num_words, vocab_size);
+    printf("number of documents: %d, number of words: %d, vocabulary size: %d\n", num_docs, num_words, vocab_size);
 }
 
 void loadDocs() {
@@ -125,9 +189,8 @@ void loadDocs() {
     uint32 a, b, c, freq, len, wordid, docid;
     char ch, buf[MAX_STRING], *token;
     FILE *fin;
-    DocEntry doc_entry;
-    WordEntry word_entry;
-    TopicEntry topic_entry;
+    DocEntry *doc_entry;
+    WordEntry *word_entry;
 
     if (NULL == (fin = fopen(input, "r"))) {
         fprintf(stderr, "can not open input file");
@@ -141,9 +204,9 @@ void loadDocs() {
     while (!feof(fin)) {
         ch = fgetc(fin);
         if (ch == '\n') {
-            doc_entry = doc_entries[docid];
-            doc_entry.idx = b;
-            doc_entry.num_words = c - b;
+            doc_entry = &doc_entries[docid];
+            doc_entry->idx = b;
+            doc_entry->num_words = c - b;
 
             docid++;
             b = c;
@@ -152,39 +215,39 @@ void loadDocs() {
                 fflush(stdout);
             }
         } else if (ch == ' ') {
+            buf[len] = '\0';
             token = strtok(buf, ":");  // get word-string
             wordid = getIdFromWord(token);  
             token = strtok(NULL, ":"); // get word-freq
             freq = atoi(token);
-            c += freq;
             token = strtok(NULL, ":"); // get anchor-topic
             topicid = atoi(token);
 
-            doc_entry = doc_entries[docid];
+            doc_entry = &doc_entries[docid];
             for (a = 0; a < freq; a++) {
-                word_entry = word_entries[b + a];
-                word_entry.wordid = wordid;
-                if (topicid >= 0) word_entry.topicid = topicid;
-                else word_entry.topicid = genRandTopicId();
-                topic_entry = topic_entries[word_entry.topicid];
-                topic_entry.num_words++;
-                addTopicWordCnt(&topic_entry, wordid, 1);
-                addDocTopicCnt(&doc_entry, word_entry.topicid, 1);
+                word_entry = &word_entries[c + a];
+                word_entry->wordid = wordid;
+                if (topicid >= 0) word_entry->topicid = topicid;
+                else word_entry->topicid = genRandTopicId();
+                addTopicWordCnt(&topic_entries[word_entry->topicid], wordid, 1);
+                addDocTopicCnt(doc_entry, word_entry->topicid, 1);
             }
+            c += freq;
             memset(buf, 0, len);
+            len = 0;
         } else { // append ch to buf
-            len = strlen(buf);
             buf[len] = ch;
-            buf[len + 1] = '\0';
+            len++;
         }
     }
 }
 
 void gibbsSample() {
-    uint32 a, b, c, idx;
+    uint32 a, b;
+    int c;
     real Kalpha, smooth, dt, tw, spec_topic_r, s_spec, s_comm, r, s, *sbucket, *dbucket, *tbucket;
-    DocEntry doc_entry;
-    WordEntry word_entry;
+    DocEntry *doc_entry;
+    WordEntry *word_entry;
 
     Kalpha = num_topics * alpha;
     sbucket = (real *)calloc(num_topics, sizeof(real));
@@ -193,17 +256,26 @@ void gibbsSample() {
 
     smooth = initS(sbucket);
     for (a = 0; a < num_docs; a++) {
-        doc_entry = doc_entries[a];
-        dt = initD(dbucket, &doc_entry);
-        for (b = 0; b < doc_entry.num_words; b++) {
-            word_entry = word_entries[doc_entry.idx + b];
-            tw = initT(tbucket, &doc_entry, &word_entry);
-            spec_topic_r = (gamma0 + doc_entry.num_words - getDocTopicCnt(&doc_entry, num_topics)) / (1 + doc_entry.num_words);
-            s_spec = (smooth + dt + tw) * spec_topic_r / (Kalpha + doc_entry.num_words - getDocTopicCnt(&doc_entry, num_topics));
-            s_comm = (1. - spec_topic_r) * initComm(&word_entry);
+        if (a % 1000 == 0) {
+            printf("%dK%c", a / 1000, 13);
+            fflush(stdout);
+        }
+        doc_entry = &doc_entries[a];
+        dt = initD(dbucket, doc_entry);
+        for (b = 0; b < doc_entry->num_words; b++) {
+            word_entry = &word_entries[doc_entry->idx + b];
+            addTopicWordCnt(&topic_entries[word_entry->topicid], word_entry->wordid, -1);
+            addDocTopicCnt(doc_entry, word_entry->topicid, -1);
+            doc_entry->num_words--;
+
+            spec_topic_r = (gamma0 + doc_entry->num_words - getDocTopicCnt(doc_entry, num_topics)) / (1 + doc_entry->num_words);
+
+            tw = initT(tbucket, doc_entry, word_entry);
+            s_spec = (smooth + dt + tw) * spec_topic_r / (Kalpha + doc_entry->num_words - getDocTopicCnt(doc_entry, num_topics));
+            s_comm = (1. - spec_topic_r) * initComm(word_entry);
             r = (s_spec + s_comm) * rand() / RAND_MAX;
             if (r < s_spec) { // sample in special topics, topicid range 0 ~ num_topics - 1
-                r = r / spec_topic_r * (Kalpha + doc_entry.num_words - getDocTopicCnt(&doc_entry, num_topics));
+                r = r / spec_topic_r * (Kalpha + doc_entry->num_words - getDocTopicCnt(doc_entry, num_topics));
                 s = 0;
                 if (r < smooth) {
                     for (c = 0; c < num_topics; c++) {
@@ -211,12 +283,32 @@ void gibbsSample() {
                         if (s > r) break;
                     }
                 } else if (r < smooth + dt) {
+                    for (c = 0; c < num_topics; c++) {
+                        if (getDocTopicCnt(doc_entry, c) == 0) continue;
+                        s += dbucket[c];
+                        if (s > r) break;
+                    }
                 } else {
+                    for (c = 0; c < num_topics; c++) {
+                        if (getTopicWordCnt(&topic_entries[c], word_entry->wordid) == 0) continue;
+                        s += tbucket[c];
+                        if (s > r) break;
+                    }
                 }
-
             } else { // sample in common topic, topicid just num_topics
-
+                c = num_topics;
             }
+            if (c != word_entry->topicid) {
+                // update topic-word
+                addTopicWordCnt(&topic_entries[c], word_entry->wordid, 1);
+                // update doc-topic
+                addDocTopicCnt(doc_entry, c, 1);
+                // update sparse bucket
+                smooth += updateS(sbucket, word_entry->topicid, c);
+                dt += updateD(dbucket, word_entry->topicid, c, doc_entry);
+            }
+            word_entry->topicid = c;
+            doc_entry->num_words++;
         }
     }
 
@@ -225,7 +317,67 @@ void gibbsSample() {
     free(tbucket);
 }
 
-void saveModel() {}
+void saveModel(uint32 suffix) {
+    uint32 a, b, cnt;
+    int t;
+    char fpath[MAX_STRING], word_str[MAX_STRING];
+    FILE *fout;
+    DocEntry *doc_entry;
+    TopicEntry *topic_entry;
+    WordEntry *word_entry;
+
+    // save doc-topic
+    sprintf(fpath, "%s/%s.%d", output, "doc_topic", suffix);
+    if (NULL == (fout = fopen(fpath, "w"))) {
+        fprintf(stderr, "ERRPR: open %s fail", fpath);
+        exit(1);
+    }
+    for (a = 0; a < num_docs; a++) {
+        doc_entry = &doc_entries[a];
+        for (t = 0; t < num_topics; t++) {
+            cnt = getDocTopicCnt(doc_entry, t);
+            if (cnt > 0) fprintf(fout, " %d:%d", t, cnt);
+        }
+        fprintf(fout, "\n");
+    }
+
+    // save topic-word
+    sprintf(fpath, "%s/%s.%d", output, "topic_word", suffix);
+    if (NULL == (fout = fopen(fpath, "w"))) {
+        fprintf(stderr, "ERRPR: open %s fail", fpath);
+        exit(1);
+    }
+    for (a = 0; a < num_topics + 1; a++) {
+        topic_entry = &topic_entries[a];
+        if (a == num_topics) fprintf(fout, "common-topic");
+        else fprintf(fout, "topic-%d", a);
+        for (b = 0; b < vocab_size; b++) {
+            word_entry = &word_entries[b];
+            cnt = getTopicWordCnt(topic_entry, word_entry->wordid);
+            if (cnt > 0) {
+                getWordFromId(word_entry->wordid, word_str);
+                fprintf(fout, " %s:%d", word_str, cnt);
+            }
+        }
+        fprintf(fout, "\n");
+    }
+
+    // save words
+    sprintf(fpath, "%s/%s.%d", output, "words", suffix);
+    if (NULL == (fout = fopen(fpath, "w"))) {
+        fprintf(stderr, "ERRPR: open %s fail", fpath);
+        exit(1);
+    }
+    for (a = 0; a < num_docs; a++) {
+        doc_entry = &doc_entries[a];
+        for (b = 0; b < doc_entry->num_words; b++) {
+            word_entry = &word_entries[doc_entry->idx + b];
+            getWordFromId(word_entry->wordid, word_str);
+            fprintf(fout, " %s:1:%d", word_str, word_entry->topicid);
+        }
+        fprintf(fout, "\n");
+    }
+}
 
 int main(int argc, char **argv) {
     int a, sec1, sec2;
@@ -288,16 +440,19 @@ int main(int argc, char **argv) {
     loadDocs();
 
     // gibbs sampling
+    printf("start train LDA:\n");
     for (a = 0; a < num_iters; a++) {
         sec1 = time(NULL);
         gibbsSample();
+        if (a % 10 == 0) saveModel(a);
         sec2 = time(NULL);
         printf("iter %d done, take %d second\n", a, sec2 - sec1);
     }
 
     // save model
-    saveModel();
+    saveModel(num_iters);
 
+    for (a = 0; a < num_docs; a++) docEntryDestory(&doc_entries[a]);
     free(doc_entries);
     free(word_entries);
     for (a = 0; a < num_topics + 1; a++) topicEntryDestory(&topic_entries[a]);

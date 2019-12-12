@@ -12,8 +12,6 @@
 #include <cstring>
 
 void docEntryInit(DocEntry *doc_entry, uint32 docid, uint32 num_topics) {
-    uint32 a;
-
     doc_entry->docid = docid;
     doc_entry->idx = 0;
     doc_entry->num_words = 0;
@@ -21,7 +19,7 @@ void docEntryInit(DocEntry *doc_entry, uint32 docid, uint32 num_topics) {
         fprintf(stderr, "ERROR: allocate memory for doc-topic distribution fail\n");
         exit(1);
     }
-    for (a = 0; a < num_topics + 1; a++) doc_entry->topic_dist[a] = 0;
+    memset(doc_entry->topic_dist, 0, (num_topics + 1) * sizeof(uint32));
 }
 
 void docEntryDestory(DocEntry *doc_entry) {
@@ -41,15 +39,13 @@ void addDocTopicCnt(DocEntry *doc_entry, int topicid, int delta) {
 }
 
 void topicEntryInit(TopicEntry *topic_entry, int topicid, uint32 vocab_size) {
-    uint32 a;
-
     topic_entry->topicid = topicid;
     topic_entry->num_words = 0;
     if (NULL == (topic_entry->word_dist = (uint32 *)calloc(vocab_size, sizeof(uint32)))) {
         fprintf(stderr, "ERROR: allocate memory for topic-word distribution fail\n");
         exit(1);
     }
-    for (a = 0; a < vocab_size; a++) topic_entry->word_dist[a] = 0;
+    memset(topic_entry->word_dist, 0, vocab_size * sizeof(uint32));
 }
 
 void topicEntryDestory(TopicEntry *topic_entry) {
@@ -62,8 +58,9 @@ uint32 getTopicWordCnt(TopicEntry *topic_entry, uint32 wordid) {
 
 void addTopicWordCnt(TopicEntry *topic_entry, uint32 wordid, int delta) {
     if ((long long)topic_entry->word_dist[wordid] < -delta) {
-        fprintf(stderr, "ERROR: after modeified(delta = %d), word %d count(%lld) in topic %d < 0\n", delta, wordid, topic_entry->word_dist[wordid], topic_entry->topicid);
+        fprintf(stderr, "ERROR: after modeified(delta = %d), word %d count(%d) in topic %d < 0\n", delta, wordid, topic_entry->word_dist[wordid], topic_entry->topicid);
         exit(1);
     }
     topic_entry->word_dist[wordid] += delta;
+    topic_entry->num_words = (long long)topic_entry->num_words + delta;
 }
