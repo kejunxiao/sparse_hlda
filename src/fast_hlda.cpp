@@ -8,6 +8,7 @@
  * ======================================================== */
 #include "utils.h"
 #include "model.h"
+#include <sys/time.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -270,7 +271,8 @@ void loadDocs() {
 
 void gibbsSample(uint32 round) {
     uint32 a, b;
-    int t, sec;
+    int t;
+    struct timeval tv1, tv2;
     real smooth, dt, tw, spec_topic_r, s_spec, s_comm, r, s, *denominators, *sbucket, *dbucket, *subtbucket, *tbucket;
     real Kalpha = num_topics * alpha, Vbeta = vocab_size * beta, Vbeta2 = vocab_size * beta2, ab = alpha * beta;
     DocEntry *doc_entry;
@@ -284,12 +286,16 @@ void gibbsSample(uint32 round) {
 
     initDenomin(denominators, Vbeta);
     smooth = initS(sbucket, ab, denominators);
-    sec = time(NULL);
+    gettimeofday(&tv1, NULL);
     for (a = 0; a < num_docs; a++) {
-        if (a % 1000 == 0) {
-            printf("%cProcess: %.2f%% Documents/Sec: %.2fK", 13, (round + a * 1. / num_docs) * 100. / num_iters, 1. / (time(NULL) - sec));
+        if (a > 0 && a % 10000 == 0) {
+            gettimeofday(&tv2, NULL);
+            printf("%cProcess: %.2f%% Documents/Sec: %.2fK", 
+                   13,
+                   (round + a * 1. / num_docs) * 100. / num_iters, 
+                   10. / (tv2.tv_sec - tv1.tv_sec + (tv2.tv_usec - tv1.tv_usec) / 1000000.));
             fflush(stdout);
-            sec = time(NULL);
+            memcpy(&tv1, &tv2, sizeof(struct timeval));
         }
         doc_entry = &doc_entries[a];
         dt = initD(dbucket, doc_entry, denominators);

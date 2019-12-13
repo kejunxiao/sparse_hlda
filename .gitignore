@@ -3,3 +3,6 @@ logs/
 *.pyc
 *.o
 *.gzh
+test.c
+test
+log
