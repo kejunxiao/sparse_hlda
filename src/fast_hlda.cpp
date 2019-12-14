@@ -152,13 +152,7 @@ void learnVocabFromDocs() {
     len = 0;
     while (!feof(fin)) {
         ch = fgetc(fin);
-        if (ch == '\n') {
-            num_docs++;
-            if (num_docs % 1000 == 0) {
-                printf("%dK%c", num_docs / 1000, 13);
-                fflush(stdout);
-            }
-        } else if (ch == ' ') {
+        if (ch == ' ' || ch == '\n') {
             buf[len] = '\0';
             token = strtok(buf, ":");  // get word-string
             getIdFromWord(token);
@@ -166,6 +160,13 @@ void learnVocabFromDocs() {
             num_tokens += atoi(token);
             memset(buf, 0, len);
             len = 0;
+            if (ch == '\n') {
+                num_docs++;
+                if (num_docs % 1000 == 0) {
+                    printf("%dK%c", num_docs / 1000, 13);
+                    fflush(stdout);
+                }
+            }
         } else { // append ch to buf
             buf[len] = ch;
             len++;
@@ -208,18 +209,7 @@ void loadDocs() {
     c = 0;
     while (!feof(fin)) {
         ch = fgetc(fin);
-        if (ch == '\n') {
-            doc_entry = &doc_entries[docid];
-            doc_entry->idx = b;
-            doc_entry->num_words = c - b;
-
-            docid++;
-            b = c;
-            if (docid % 1000 == 0) {
-                printf("%dK%c", docid / 1000, 13);
-                fflush(stdout);
-            }
-        } else if (ch == ' ') {
+        if (ch == ' ' || ch == '\n') {
             buf[len] = '\0';
             token = strtok(buf, ":");  // get word-string
             wordid = getIdFromWord(token);  
@@ -241,7 +231,20 @@ void loadDocs() {
             c += freq;
             memset(buf, 0, len);
             len = 0;
+            if (ch == '\n') {
+                doc_entry = &doc_entries[docid];
+                doc_entry->idx = b;
+                doc_entry->num_words = c - b;
+
+                docid++;
+                b = c;
+                if (docid % 1000 == 0) {
+                    printf("%dK%c", docid / 1000, 13);
+                    fflush(stdout);
+                }
+            }
         } else { // append ch to buf
+            if (len >= MAX_STRING) continue;
             buf[len] = ch;
             len++;
         }
