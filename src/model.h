@@ -29,8 +29,8 @@ typedef struct TokenEntry_ {
 
 /* public interface */
 void topicNodeInit(TopicNode *topic_node, int topicid);
-void docEntryInit(DocEntry *doc_entry);
-void wordEntryInit(WordEntry *word_entry);
+void docEntryInit(DocEntry *doc_entry, uint32 docid);
+void wordEntryInit(WordEntry *word_entry, uint32 wordid);
 
 uint32 getDocTopicCnt(TopicNode *doc_topic_dist, uint32 num_topics, uint32 docid, int topicid);
 void addDocTopicCnt(TopicNode *doc_topic_dist, uint32 num_topics, DocEntry *doc_entry, int topicid, int delta);

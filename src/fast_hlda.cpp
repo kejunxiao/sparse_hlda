@@ -68,12 +68,12 @@ inline static int genRandTopicId() { return rand() % num_topics; }
 // denominators
 static void initDenomin(real *denominators, real Vbeta) {
     int a;
-    for (a = 0; a < num_topics; a++) denominators[a] = 1. / (Vbeta + topic_row_sums[a]);
+    for (a = 0; a < num_topics; a++) denominators[a] = Vbeta + topic_row_sums[a];
 }
 
 static void updateDenomin(real *denominators, real Vbeta, int oldtid, int newtid) {
-    denominators[oldtid] = 1. / (Vbeta + topic_row_sums[oldtid]);
-    denominators[newtid] = 1. / (Vbeta + topic_row_sums[newtid]);
+    denominators[oldtid] = Vbeta + topic_row_sums[oldtid];
+    denominators[newtid] = Vbeta + topic_row_sums[newtid];
 }
 
 // soomth-only bucket
@@ -120,41 +120,24 @@ static real updateD(real *dbucket, DocEntry *doc_entry, real *denominators, int 
     real delta = 0, tmp = 0;
 
     // update old topicid
-    tmp = doc_topic_dist[doc_entry->docid * (1 + num_topics) + oldtid].cnt * beta / denominators[oldtid];
+    tmp = getDocTopicCnt(doc_topic_dist, num_topics, doc_entry->docid, oldtid) * beta / denominators[oldtid];
     delta += tmp - dbucket[oldtid];
     dbucket[oldtid] = tmp;
     // update new topicid
-    tmp = doc_topic_dist[doc_entry->docid * (1 + num_topics) + newtid].cnt * beta / denominators[newtid];
+    tmp = getDocTopicCnt(doc_topic_dist, num_topics, doc_entry->docid, newtid)* beta / denominators[newtid];
     delta += tmp - dbucket[newtid];
     dbucket[newtid] = tmp;
     return delta;
 }
 
 // topic-word bucket
-static void initSubT(real *subtbucket, DocEntry *doc_entry, real *denominators) {
-    TopicNode *node;
-
-    node = doc_entry->nonzeros;
-    while (node) {
-        subtbucket[node->topicid] = (alpha + node->cnt) / denominators[node->topicid];
-        node = node->next;
-    }
-}
-
-static void updateSubT(real *subtbucket, DocEntry *doc_entry, real *denominators, int oldtid, int newtid) {
-    // update old topicid
-    subtbucket[oldtid] = (alpha + doc_topic_dist[doc_entry->docid * (1 + num_topics) + oldtid].cnt) / denominators[oldtid];
-    // update new topicid
-    subtbucket[newtid] = (alpha + doc_topic_dist[doc_entry->docid * (1 + num_topics) + newtid].cnt) / denominators[newtid];
-}
-
-static real initT(real *tbucket, WordEntry *word_entry, real *subtbucket) {
+static real initT(real *tbucket, WordEntry *word_entry, uint32 docid, real *denominators) {
     TopicNode *node;
     real tw = 0;
 
     node = word_entry->nonzeros;
     while (node) {
-        tbucket[node->topicid] = node->cnt * subtbucket[node->topicid];
+        tbucket[node->topicid] = (alpha + getDocTopicCnt(doc_topic_dist, num_topics, docid, node->topicid)) * node->cnt / denominators[node->topicid];
         tw += tbucket[node->topicid];
         node = node->next;
     }
@@ -209,10 +192,10 @@ void learnVocabFromDocs() {
     for (a = 0; a < vocab_size * (1 + num_topics); a++) topicNodeInit(&topic_word_dist[a], a % (1 + num_topics));
     // allocate memory for doc_entries
     doc_entries = (DocEntry *)calloc(num_docs, sizeof(DocEntry));
-    for (a = 0; a < num_docs; a++) docEntryInit(&doc_entries[a]);
+    for (a = 0; a < num_docs; a++) docEntryInit(&doc_entries[a], a);
     // allocate memory for word_entries
     word_entries = (WordEntry *)calloc(vocab_size, sizeof(WordEntry));
-    for (a = 0; a < vocab_size; a++) wordEntryInit(&word_entries[a]);
+    for (a = 0; a < vocab_size; a++) wordEntryInit(&word_entries[a], a);
     // allocate memory for token_entries
     token_entries = (TokenEntry *)calloc(num_tokens, sizeof(TokenEntry));
 }
@@ -238,7 +221,6 @@ void loadDocs() {
         ch = fgetc(fin);
         if (ch == '\n') {
             doc_entry = &doc_entries[docid];
-            doc_entry->docid = docid;
             doc_entry->idx = b;
             doc_entry->num_words = c - b;
 
@@ -265,6 +247,7 @@ void loadDocs() {
                 else token_entry->topicid = genRandTopicId();
                 addDocTopicCnt(doc_topic_dist, num_topics, doc_entry, token_entry->topicid, 1);
                 addTopicWordCnt(topic_word_dist, num_topics, token_entry->topicid, &word_entries[wordid], 1);
+                topic_row_sums[token_entry->topicid]++;
             }
             c += freq;
             memset(buf, 0, len);
@@ -280,7 +263,7 @@ void gibbsSample(uint32 round) {
     uint32 a, b;
     int t;
     struct timeval tv1, tv2;
-    real smooth, dt, tw, spec_topic_r, s_spec, s_comm, r, s, *denominators, *sbucket, *dbucket, *subtbucket, *tbucket;
+    real smooth, dt, tw, spec_topic_r, s_spec, s_comm, r, s, *denominators, *sbucket, *dbucket, *tbucket;
     real Kalpha = num_topics * alpha, Vbeta = vocab_size * beta, Vbeta2 = vocab_size * beta2, ab = alpha * beta;
     DocEntry *doc_entry;
     TokenEntry *token_entry;
@@ -289,10 +272,11 @@ void gibbsSample(uint32 round) {
     denominators = (real *)calloc(num_topics, sizeof(real));
     sbucket = (real *)calloc(num_topics, sizeof(real));
     dbucket = (real *)calloc(num_topics, sizeof(real));
-    subtbucket = (real *)calloc(num_topics, sizeof(real));
     tbucket = (real *)calloc(num_topics, sizeof(real));
 
+    memset(denominators, 0, num_topics);
     initDenomin(denominators, Vbeta);
+    memset(sbucket, 0, num_topics);
     smooth = initS(sbucket, ab, denominators);
     gettimeofday(&tv1, NULL);
     for (a = 0; a < num_docs; a++) {
@@ -306,18 +290,20 @@ void gibbsSample(uint32 round) {
             memcpy(&tv1, &tv2, sizeof(struct timeval));
         }
         doc_entry = &doc_entries[a];
+        memset(dbucket, 0, num_topics);
         dt = initD(dbucket, doc_entry, denominators);
-        initSubT(subtbucket, doc_entry, denominators); // calc word-independent-part of topic-word bucket
 
         for (b = 0; b < doc_entry->num_words; b++) {
             token_entry = &token_entries[doc_entry->idx + b];
             addDocTopicCnt(doc_topic_dist, num_topics, doc_entry, token_entry->topicid, -1);
             addTopicWordCnt(topic_word_dist, num_topics, token_entry->topicid, &word_entries[token_entry->wordid], -1);
             doc_entry->num_words--;
+            topic_row_sums[token_entry->topicid]--;
 
             spec_topic_r = (gamma0 + doc_entry->num_words - getDocTopicCnt(doc_topic_dist, num_topics, a, num_topics)) / (1 + doc_entry->num_words);
 
-            tw = initT(tbucket, &word_entries[token_entry->wordid], subtbucket);
+            memset(tbucket, 0, num_topics);
+            tw = initT(tbucket, &word_entries[token_entry->wordid], a, denominators);
             s_spec = (smooth + dt + tw) * spec_topic_r / (Kalpha + doc_entry->num_words - getDocTopicCnt(doc_topic_dist, num_topics, a, num_topics));
             s_comm = (1. - spec_topic_r) * initComm(Vbeta2, token_entry->wordid);
             r = (s_spec + s_comm) * rand() / RAND_MAX;
@@ -325,7 +311,8 @@ void gibbsSample(uint32 round) {
             t = -1;
             if (r < s_spec) { 
                 // sample in special topics, topicid range 0 ~ num_topics - 1
-                r = r / spec_topic_r * (Kalpha + doc_entry->num_words - getDocTopicCnt(doc_topic_dist, num_topics, a, num_topics));
+                r = (smooth + dt + tw) * rand() / RAND_MAX;
+                //r = r / spec_topic_r * (Kalpha + doc_entry->num_words - getDocTopicCnt(doc_topic_dist, num_topics, a, num_topics));
                 s = 0;
                 if (r < smooth) {
                     for (t = 0; t < num_topics; t++) {
@@ -354,29 +341,28 @@ void gibbsSample(uint32 round) {
                 t = num_topics;
             }
             if (t < 0) {
-                fprintf(stderr, "***ERROR***: sample fail\n");
+                fprintf(stderr, "***ERROR***: sample fail, smooth = %.16f, dt = %.16f, tw = %.16f\n", smooth, dt, tw);
                 exit(2);
             }
             // update doc-topic
             addDocTopicCnt(doc_topic_dist, num_topics, doc_entry, t, 1);
             // update topic-word
             addTopicWordCnt(topic_word_dist, num_topics, t, &word_entries[token_entry->wordid], 1);
+            doc_entry->num_words++;
+            topic_row_sums[t]++;
             if (t != token_entry->topicid) {
                 // update sparse bucket
                 updateDenomin(denominators, Vbeta, token_entry->topicid, t);
                 smooth += updateS(sbucket, ab, denominators, token_entry->topicid, t);
                 dt += updateD(dbucket, doc_entry, denominators, token_entry->topicid, t);
-                updateSubT(subtbucket, doc_entry, denominators, token_entry->topicid, t); 
             }
             token_entry->topicid = t;
-            doc_entry->num_words++;
         }
     }
 
     free(denominators);
     free(sbucket);
     free(dbucket);
-    free(subtbucket);
     free(tbucket);
 }
 
@@ -423,7 +409,7 @@ void saveModel(uint32 suffix) {
     }
 
     // save tokens
-    sprintf(fpath, "%s/%s.%d", output, "words", suffix);
+    sprintf(fpath, "%s/%s.%d", output, "tokens", suffix);
     if (NULL == (fout = fopen(fpath, "w"))) {
         fprintf(stderr, "***ERROR***: open %s fail", fpath);
         exit(1);

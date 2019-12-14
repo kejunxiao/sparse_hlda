@@ -10,15 +10,15 @@ void topicNodeInit(TopicNode *topic_node, int topicid) {
     topic_node->topicid = topicid;
 }
 
-void docEntryInit(DocEntry *doc_entry) {
-    doc_entry->docid = 0;
+void docEntryInit(DocEntry *doc_entry, uint32 docid) {
+    doc_entry->docid = docid;
     doc_entry->idx = 0;
     doc_entry->num_words = 0;
     doc_entry->nonzeros = NULL;
 }
 
-void wordEntryInit(WordEntry *word_entry) {
-    word_entry->wordid = 0;
+void wordEntryInit(WordEntry *word_entry, uint32 wordid) {
+    word_entry->wordid = wordid;
     word_entry->nonzeros = NULL;
 }
 
@@ -34,6 +34,7 @@ void addDocTopicCnt(TopicNode *doc_topic_dist, uint32 num_topics, DocEntry *doc_
     oldcnt = doc_topic_dist[offset].cnt;
     doc_topic_dist[offset].cnt += delta;
 
+    if (topicid == num_topics) return; // no insert common-topicid 
     if (oldcnt == 0 && delta > 0) { 
         // insert topicid into nonzeros of docid
         node = &doc_topic_dist[offset];
@@ -63,6 +64,7 @@ void addTopicWordCnt(TopicNode *topic_word_dist, uint32 num_topics, int topicid,
     oldcnt = topic_word_dist[offset].cnt;
     topic_word_dist[offset].cnt += delta;
 
+    if (topicid == num_topics) return; // no insert common-topicid
     if (oldcnt == 0 && delta > 0) { 
         // insert topicid into nozeros of wordid
         node = &topic_word_dist[offset];
