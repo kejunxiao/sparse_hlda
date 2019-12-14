@@ -1,66 +1,83 @@
-/* ========================================================
- *   Copyright (C) 2019 All rights reserved.
- *   
- *   filename : model.cpp
- *   author   : ***
- *   date     : 2019-12-06
- *   info     : 
- * ======================================================== */
 #include "model.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
-void docEntryInit(DocEntry *doc_entry, uint32 docid, uint32 num_topics) {
+void topicNodeInit(TopicNode *topic_node, int topicid) {
+    topic_node->prev = NULL;
+    topic_node->next = NULL;
+    topic_node->cnt = 0;
+    topic_node->topicid = topicid;
+}
+
+void docEntryInit(DocEntry *doc_entry, uint32 docid) {
     doc_entry->docid = docid;
     doc_entry->idx = 0;
     doc_entry->num_words = 0;
-    if (NULL == (doc_entry->topic_dist = (uint32 *)calloc(num_topics + 1, sizeof(uint32)))) {
-        fprintf(stderr, "ERROR: allocate memory for doc-topic distribution fail\n");
-        exit(1);
+    doc_entry->nonzeros = NULL;
+}
+
+void wordEntryInit(WordEntry *word_entry, uint32 wordid) {
+    word_entry->wordid = wordid;
+    word_entry->nonzeros = NULL;
+}
+
+uint32 getDocTopicCnt(TopicNode *doc_topic_dist, uint32 num_topics, uint32 docid, int topicid) {
+    return doc_topic_dist[docid * (1 + num_topics) + topicid].cnt;
+}
+
+void addDocTopicCnt(TopicNode *doc_topic_dist, uint32 num_topics, DocEntry *doc_entry, int topicid, int delta) {
+    uint32 oldcnt, offset;
+    TopicNode *node;
+
+    offset = doc_entry->docid * (1 + num_topics) + topicid;
+    oldcnt = doc_topic_dist[offset].cnt;
+    doc_topic_dist[offset].cnt += delta;
+
+    if (topicid == num_topics) return; // no insert common-topicid 
+    if (oldcnt == 0 && delta > 0) { 
+        // insert topicid into nonzeros of docid
+        node = &doc_topic_dist[offset];
+        node->next = doc_entry->nonzeros;
+        if (doc_entry->nonzeros) (doc_entry->nonzeros)->prev = node;
+        doc_entry->nonzeros = node;
+    } else if (doc_topic_dist[offset].cnt == 0 && delta < 0) {
+        // remove topicid from nonzeros of docid
+        node = &doc_topic_dist[offset];
+        if (node->prev) node->prev->next = node->next;
+        else doc_entry->nonzeros = node->next;
+        if (node->next) node->next->prev = node->prev;
+        node->prev = NULL;
+        node->next = NULL;
     }
-    memset(doc_entry->topic_dist, 0, (num_topics + 1) * sizeof(uint32));
 }
 
-void docEntryDestory(DocEntry *doc_entry) {
-    free(doc_entry->topic_dist);
+uint32 getTopicWordCnt(TopicNode *topic_word_dist, uint32 num_topics, int topicid, uint32 wordid) {
+    return topic_word_dist[wordid * (1 + num_topics) + topicid].cnt;
 }
 
-uint32 getDocTopicCnt(DocEntry *doc_entry, int topicid) {
-    return doc_entry->topic_dist[topicid];
-}
+void addTopicWordCnt(TopicNode *topic_word_dist, uint32 num_topics, int topicid, WordEntry *word_entry, int delta) {
+    uint32 oldcnt, offset;
+    TopicNode *node;
 
-void addDocTopicCnt(DocEntry *doc_entry, int topicid, int delta) {
-    if ((long long)doc_entry->topic_dist[topicid] < -delta ) {
-        fprintf(stderr, "ERROR: after modeified (delta = %d), topic %d (count = %d) in doc %d < 0\n", delta, topicid, doc_entry->topic_dist[topicid], doc_entry->docid);
-        exit(1);
+    offset = word_entry->wordid * (1 + num_topics) + topicid;
+    oldcnt = topic_word_dist[offset].cnt;
+    topic_word_dist[offset].cnt += delta;
+
+    if (topicid == num_topics) return; // no insert common-topicid
+    if (oldcnt == 0 && delta > 0) { 
+        // insert topicid into nozeros of wordid
+        node = &topic_word_dist[offset];
+        node->next = word_entry->nonzeros;
+        if (word_entry->nonzeros) (word_entry->nonzeros)->prev = node;
+        word_entry->nonzeros = node;
+    } else if (topic_word_dist[offset].cnt == 0 && delta < 0) {
+        // remove topicid from nonzeros of wordid
+        node = &topic_word_dist[offset];
+        if (node->prev) node->prev->next = node->next;
+        else word_entry->nonzeros = node->next;
+        if (node->next) node->next->prev = node->prev;
+        node->prev = NULL;
+        node->next = NULL;
     }
-    doc_entry->topic_dist[topicid] += delta;
-}
-
-void topicEntryInit(TopicEntry *topic_entry, int topicid, uint32 vocab_size) {
-    topic_entry->topicid = topicid;
-    topic_entry->num_words = 0;
-    if (NULL == (topic_entry->word_dist = (uint32 *)calloc(vocab_size, sizeof(uint32)))) {
-        fprintf(stderr, "ERROR: allocate memory for topic-word distribution fail\n");
-        exit(1);
-    }
-    memset(topic_entry->word_dist, 0, vocab_size * sizeof(uint32));
-}
-
-void topicEntryDestory(TopicEntry *topic_entry) {
-    free(topic_entry->word_dist);
-}
-
-uint32 getTopicWordCnt(TopicEntry *topic_entry, uint32 wordid) {
-    return topic_entry->word_dist[wordid];
-}
-
-void addTopicWordCnt(TopicEntry *topic_entry, uint32 wordid, int delta) {
-    if ((long long)topic_entry->word_dist[wordid] < -delta) {
-        fprintf(stderr, "ERROR: after modeified (delta = %d), word %d (count = %d) in topic %d < 0\n", delta, wordid, topic_entry->word_dist[wordid], topic_entry->topicid);
-        exit(1);
-    }
-    topic_entry->word_dist[wordid] += delta;
-    topic_entry->num_words = (long long)topic_entry->num_words + delta;
 }
