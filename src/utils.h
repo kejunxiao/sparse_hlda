@@ -19,7 +19,7 @@
  * type
  */
 #define uint32 unsigned int
-#define real float
+#define real double
 
 /*
  * ======== argPos ======== 
