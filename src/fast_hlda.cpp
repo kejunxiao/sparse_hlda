@@ -308,11 +308,11 @@ void gibbsSample(uint32 round) {
             r = (s_spec + s_comm) * rand() / RAND_MAX;
             // start sampling
             t = -1;
+            s = 0;
             if (r < s_spec) { 
                 // sample in special topics, topicid range 0 ~ num_topics - 1
                 r = (smooth + dt + tw) * rand() / (RAND_MAX + 1.);
                 //printf("docid = %d, r = %.16f, smooth = %.16f, dt = %.16f, tw = %.16f\n", a, r, smooth, dt, tw);
-                s = 0;
                 if (r < smooth) {
                     for (t = 0; t < num_topics; t++) {
                         s += sbucket[t];
