@@ -71,7 +71,7 @@ static void initDenomin(real *denominators, real Vbeta) {
     for (a = 0; a < num_topics; a++) denominators[a] = Vbeta + topic_row_sums[a];
 }
 
-static void updateDenomin(real *denominators, real Vbeta, int topicid) {
+inline static void updateDenomin(real *denominators, real Vbeta, int topicid) {
     denominators[topicid] = Vbeta + topic_row_sums[topicid];
 }
 
@@ -135,7 +135,7 @@ static real initT(real *tbucket, WordEntry *word_entry, uint32 docid, real *deno
 
 // common-word bucket
 inline static real initComm(real Vbeta2, uint32 wordid) {
-    return (topic_word_dist[wordid * (1 + num_topics) + num_topics].cnt + beta2) / (topic_row_sums[num_topics] + Vbeta2);
+    return (getTopicWordCnt(topic_word_dist, num_topics, num_topics, wordid) + beta2) / (topic_row_sums[num_topics] + Vbeta2);
 }
 
 /* public interface */
