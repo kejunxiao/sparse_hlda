@@ -71,7 +71,7 @@ static void initDenomin(real *denominators, real Vbeta) {
     for (a = 0; a < num_topics; a++) denominators[a] = Vbeta + topic_row_sums[a];
 }
 
-static void updateDenomin(real *denominators, real Vbeta, int topicid) {
+inline static void updateDenomin(real *denominators, real Vbeta, int topicid) {
     denominators[topicid] = Vbeta + topic_row_sums[topicid];
 }
 
@@ -135,7 +135,7 @@ static real initT(real *tbucket, WordEntry *word_entry, uint32 docid, real *deno
 
 // common-word bucket
 inline static real initComm(real Vbeta2, uint32 wordid) {
-    return (topic_word_dist[wordid * (1 + num_topics) + num_topics].cnt + beta2) / (topic_row_sums[num_topics] + Vbeta2);
+    return (getTopicWordCnt(topic_word_dist, num_topics, num_topics, wordid) + beta2) / (topic_row_sums[num_topics] + Vbeta2);
 }
 
 /* public interface */
@@ -152,13 +152,7 @@ void learnVocabFromDocs() {
     len = 0;
     while (!feof(fin)) {
         ch = fgetc(fin);
-        if (ch == '\n') {
-            num_docs++;
-            if (num_docs % 1000 == 0) {
-                printf("%dK%c", num_docs / 1000, 13);
-                fflush(stdout);
-            }
-        } else if (ch == ' ') {
+        if (ch == ' ' || ch == '\n') {
             buf[len] = '\0';
             token = strtok(buf, ":");  // get word-string
             getIdFromWord(token);
@@ -166,6 +160,13 @@ void learnVocabFromDocs() {
             num_tokens += atoi(token);
             memset(buf, 0, len);
             len = 0;
+            if (ch == '\n') {
+                num_docs++;
+                if (num_docs % 1000 == 0) {
+                    printf("%dK%c", num_docs / 1000, 13);
+                    fflush(stdout);
+                }
+            }
         } else { // append ch to buf
             buf[len] = ch;
             len++;
@@ -208,18 +209,7 @@ void loadDocs() {
     c = 0;
     while (!feof(fin)) {
         ch = fgetc(fin);
-        if (ch == '\n') {
-            doc_entry = &doc_entries[docid];
-            doc_entry->idx = b;
-            doc_entry->num_words = c - b;
-
-            docid++;
-            b = c;
-            if (docid % 1000 == 0) {
-                printf("%dK%c", docid / 1000, 13);
-                fflush(stdout);
-            }
-        } else if (ch == ' ') {
+        if (ch == ' ' || ch == '\n') {
             buf[len] = '\0';
             token = strtok(buf, ":");  // get word-string
             wordid = getIdFromWord(token);  
@@ -241,7 +231,20 @@ void loadDocs() {
             c += freq;
             memset(buf, 0, len);
             len = 0;
+            if (ch == '\n') {
+                doc_entry = &doc_entries[docid];
+                doc_entry->idx = b;
+                doc_entry->num_words = c - b;
+
+                docid++;
+                b = c;
+                if (docid % 1000 == 0) {
+                    printf("%dK%c", docid / 1000, 13);
+                    fflush(stdout);
+                }
+            }
         } else { // append ch to buf
+            if (len >= MAX_STRING) continue;
             buf[len] = ch;
             len++;
         }
@@ -308,11 +311,11 @@ void gibbsSample(uint32 round) {
             r = (s_spec + s_comm) * rand() / RAND_MAX;
             // start sampling
             t = -1;
+            s = 0;
             if (r < s_spec) { 
                 // sample in special topics, topicid range 0 ~ num_topics - 1
                 r = (smooth + dt + tw) * rand() / (RAND_MAX + 1.);
                 //printf("docid = %d, r = %.16f, smooth = %.16f, dt = %.16f, tw = %.16f\n", a, r, smooth, dt, tw);
-                s = 0;
                 if (r < smooth) {
                     for (t = 0; t < num_topics; t++) {
                         s += sbucket[t];
