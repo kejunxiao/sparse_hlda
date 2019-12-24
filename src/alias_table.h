@@ -3,6 +3,8 @@
 typedef struct AliasTable_ {
     uint32 wordid;
     int num_topics;
+    uint32 num_sampled;
+    real sum_dist;
     real *P;
     int *G;
 } AliasTable;
