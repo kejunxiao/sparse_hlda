@@ -2,14 +2,15 @@
 
 typedef struct AliasTable_ {
     uint32 wordid;
-    int num_topics;
+    uint32 num_topics;
     uint32 num_sampled;
-    real sum_dist;
-    real *P;
-    int *G;
+    real Q_w;
+    real *wbucket;
+    real *P; // probs bucket, index is topicid, value is prob
+    int *G;  // other topicid bucket
 } AliasTable;
 
-void AliasTableInit(AliasTable *table, uint32 wordid, int num_topics);
-void AliasTableDestory(AliasTable *table);
-void generateAliasTable(AliasTable *table, real *dist);
+void aliasTableInit(AliasTable *table, uint32 wordid, uint32 num_topics);
+void aliasTableDestory(AliasTable *table);
+void generateAliasTable(AliasTable *table, real *wbucket, real Q_w);
 int sampleAliasTable(AliasTable *table);
