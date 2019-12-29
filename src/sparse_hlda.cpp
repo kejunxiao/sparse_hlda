@@ -67,8 +67,8 @@ inline static int genRandTopicId() { return rand() % num_topics; }
 /* sparse LDA process */
 // denominators
 static void initDenomin(real *denominators, real Vbeta) {
-    int a;
-    for (a = 0; a < num_topics; a++) denominators[a] = Vbeta + topic_row_sums[a];
+    int t;
+    for (t = 0; t < num_topics; t++) denominators[t] = Vbeta + topic_row_sums[t];
 }
 
 inline static void updateDenomin(real *denominators, real Vbeta, int topicid) {
@@ -253,7 +253,7 @@ void loadDocs() {
 
 void gibbsSample(uint32 round) {
     uint32 a, b;
-    int t;
+    int new_topicid;
     struct timeval tv1, tv2;
     real smooth, dt, tw, spec_topic_r, s_spec, s_comm, r, s, *denominators, *sbucket, *dbucket, *tbucket;
     real Kalpha = num_topics * alpha, Vbeta = vocab_size * beta, Vbeta2 = vocab_size * beta2, ab = alpha * beta;
@@ -310,15 +310,14 @@ void gibbsSample(uint32 round) {
             s_comm = (1. - spec_topic_r) * initComm(Vbeta2, token_entry->wordid);
             r = (s_spec + s_comm) * rand() / RAND_MAX;
             // start sampling
-            t = -1;
+            new_topicid = -1;
             s = 0;
             if (r < s_spec) { 
                 // sample in special topics, topicid range 0 ~ num_topics - 1
                 r = (smooth + dt + tw) * rand() / (RAND_MAX + 1.);
-                //printf("docid = %d, r = %.16f, smooth = %.16f, dt = %.16f, tw = %.16f\n", a, r, smooth, dt, tw);
                 if (r < smooth) {
-                    for (t = 0; t < num_topics; t++) {
-                        s += sbucket[t];
+                    for (new_topicid = 0; new_topicid < num_topics; new_topicid++) {
+                        s += sbucket[new_topicid];
                         if (s > r) break;
                     }
                 } else if (r < smooth + dt) {
@@ -326,7 +325,7 @@ void gibbsSample(uint32 round) {
                     node = doc_entry->nonzeros;
                     while (node) {
                         s += dbucket[node->topicid];
-                        if (s > r) {t = node->topicid; break;}
+                        if (s > r) {new_topicid = node->topicid; break;}
                         node = node->next;
                     }
                 } else {
@@ -334,16 +333,15 @@ void gibbsSample(uint32 round) {
                     node = word_entry->nonzeros;
                     while (node) {
                         s += tbucket[node->topicid];
-                        if (s > r) {t = node->topicid; break;}
+                        if (s > r) {new_topicid = node->topicid; break;}
                         node = node->next;
                     }
                 }
             } else { 
                 // sample in common topic, topicid just num_topics
-                //printf("docid = %d, r = %.16f, s_spec = %.16f, s_comm = %.16f\n", a, r, s_spec, s_comm);
-                t = num_topics;
+                new_topicid = num_topics;
             }
-            if (t < 0) {
+            if (new_topicid < 0) {
                 fprintf(stderr, "***ERROR***: sample fail, r = %.16f, smooth = %.16f, dt = %.16f, tw = %.16f\n", r, smooth, dt, tw);
                 fprintf(stderr, "***ERROR***: node is NULL? %d, s = %.16f\n", node == NULL ? 1 : 0, s);
                 for (int x = 0; x < num_topics + 1; x++) {
@@ -364,18 +362,18 @@ void gibbsSample(uint32 round) {
                 fflush(stderr);
                 exit(2);
             }
-            addDocTopicCnt(doc_topic_dist, num_topics, doc_entry, t, 1);
-            addTopicWordCnt(topic_word_dist, num_topics, t, word_entry, 1);
+            addDocTopicCnt(doc_topic_dist, num_topics, doc_entry, new_topicid, 1);
+            addTopicWordCnt(topic_word_dist, num_topics, new_topicid, word_entry, 1);
             doc_entry->num_words++;
-            topic_row_sums[t]++;
-            if (t < num_topics) {
+            topic_row_sums[new_topicid]++;
+            if (new_topicid < num_topics) {
                 // update sparse bucket
-                updateDenomin(denominators, Vbeta, t);
-                smooth += updateS(sbucket, ab, denominators, t);
-                dt += updateD(dbucket, a, denominators, t);
+                updateDenomin(denominators, Vbeta, new_topicid);
+                smooth += updateS(sbucket, ab, denominators, new_topicid);
+                dt += updateD(dbucket, a, denominators, new_topicid);
             }
 
-            token_entry->topicid = t;
+            token_entry->topicid = new_topicid;
         }
     }
 

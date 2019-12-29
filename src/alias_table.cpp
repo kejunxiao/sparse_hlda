@@ -8,7 +8,7 @@ void aliasTableInit(AliasTable *table, uint32 wordid, uint32 num_topics) {
     table->wordid = wordid;
     table->num_topics = num_topics;
     table->num_sampled = 0;
-    table->Q_w = 0.;
+    table->Q_w = 0;
     if (NULL == (table->wbucket = (real *)calloc(num_topics, sizeof(real)))) {
         fprintf(stderr, "ERROR: allocate memory for AliasTable fail\n");
         exit(1);
@@ -37,24 +37,25 @@ void generateAliasTable(AliasTable *table, real *wbucket, real Q_w) {
     int t, ta, tb;
     std::vector<int> A, B;
 
+    printf("\nwordid = %d\n", table->wordid);
     // normalize wbucket
     table->Q_w = Q_w;
     memcpy(table->wbucket, wbucket, table->num_topics * sizeof(real));
     for (t = 0; t < table->num_topics; t++) {
         table->P[t] = wbucket[t] / Q_w * table->num_topics;
-        if (table->P[t] > 1.) A.push_back(t);
-        else if (table->P[t] < 1.) B.push_back(t);
+        if (table->P[t] > 1) A.push_back(t);
+        else if (table->P[t] < 1) B.push_back(t);
     }
     // construct alias table
-    while (B.size() > 0) {
-        ta = A[A.size() - 1];
-        tb = B[B.size() - 1];
+    while (!A.empty() && !B.empty()) {
+        ta = A.back();
+        tb = B.back();
         A.pop_back();
         B.pop_back();
         table->P[ta] -= 1 - table->P[tb];
         table->G[tb] = ta;
-        if (table->P[ta] > 1.) A.push_back(ta);
-        else if (table->P[ta] < 1.) B.push_back(ta);
+        if (table->P[ta] > 1) A.push_back(ta);
+        else if (table->P[ta] < 1) B.push_back(ta);
     }
     // reset num_sampled
     table->num_sampled = 0;

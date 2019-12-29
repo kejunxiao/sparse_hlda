@@ -78,8 +78,8 @@ inline uint32 getTopicWordCntAlias(uint32 *topic_word_dist, uint32 num_topics, i
 
 // denominators
 static void initDenomin(real *denominators, real Vbeta) {
-    int a;
-    for (a = 0; a < num_topics; a++) denominators[a] = Vbeta + topic_row_sums[a];
+    int t;
+    for (t = 0; t < num_topics; t++) denominators[t] = Vbeta + topic_row_sums[t];
 }
 
 inline static void updateDenomin(real *denominators, real Vbeta, int topicid) {
@@ -494,10 +494,12 @@ int main(int argc, char **argv) {
     srand(time(NULL));
     learnVocabFromDocs();
     loadDocs();
-    initTable();
 
     // metropolis-hasting sampling
     printf("start train LDA:\n");
+    fflush(stdout);
+    initTable();
+    printf("init table finished\n");
     for (a = 0; a < num_iters; a++) {
         if (save_step > 0 && a % save_step == 0) saveModel(a);
         MHSample(a);
