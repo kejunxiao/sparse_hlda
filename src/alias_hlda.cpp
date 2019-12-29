@@ -21,6 +21,7 @@ real gamma0 = 0.1;
 real beta2 = 0.01;
 uint32 num_iters = 20;
 int save_step = -1;
+uint32 MH_step = 2;
 
 // train data related
 uint32 num_docs = 0;
@@ -65,19 +66,20 @@ static uint32 getIdFromWord(const char *word) {
 
 inline static int genRandTopicId() { return rand() % num_topics; }
 
+/* AliasLDA */
+// topic-word cnt
 inline void addTopicWordCntAlias(uint32 *topic_word_dist, uint32 num_topics, int topicid, uint32 wordid, int delta) {
     topic_word_dist[wordid * (1 + num_topics) + topicid] += delta;
 }
 
-inline uint32 getTopicWordCntAlias(uint32 *topic_word_dist, unint32 num_topics, int topicid, uint32 wordid) {
+inline uint32 getTopicWordCntAlias(uint32 *topic_word_dist, uint32 num_topics, int topicid, uint32 wordid) {
     return topic_word_dist[wordid * (1 + num_topics) + topicid];
 }
 
-/* AliasLDA */
 // denominators
 static void initDenomin(real *denominators, real Vbeta) {
     int a;
-    for (a = 0; a < 1 + num_topics; a++) denominators[a] = Vbeta + topic_row_sums[a];
+    for (a = 0; a < num_topics; a++) denominators[a] = Vbeta + topic_row_sums[a];
 }
 
 inline static void updateDenomin(real *denominators, real Vbeta, int topicid) {
@@ -85,7 +87,7 @@ inline static void updateDenomin(real *denominators, real Vbeta, int topicid) {
 }
 
 // doc_topic & topic_word bucket
-static real initDW(real *dwbucket, DocEntry *doc_entry, wordid, real *denominators) {
+static real initDW(real *dwbucket, DocEntry *doc_entry, uint32 wordid, real *denominators) {
     TopicNode *node;
     real P_dw = 0;
 
@@ -235,17 +237,20 @@ void initTable() {
     real Q_w, *denominators, *wbucket;
     real Vbeta = vocab_size * beta;
     
-    denominators = (real *)calloc(1 + num_topics, sizeof(real));
-    wbucket = (real *)calloc(1 + num_topics, sizeof(real));
+    denominators = (real *)calloc(num_topics, sizeof(real));
+    wbucket = (real *)calloc(num_topics, sizeof(real));
 
-    memset(denominators, 0, (1 + num_topics) * sizeof(real));
+    memset(denominators, 0, num_topics * sizeof(real));
     initDenomin(denominators, Vbeta);
 
     for (wordid = 0; wordid < vocab_size; wordid++) {
-        memset(wbucket, 0, (1 + num_topics) * sizeof(real));
+        memset(wbucket, 0, num_topics * sizeof(real));
         Q_w = initW(wbucket, wordid, denominators);
         generateAliasTable(&alias_tables[wordid], wbucket, Q_w);
     }
+
+    free(denominators);
+    free(wbucket);
 }
 
 void MHSample(uint32 round) {
@@ -259,11 +264,11 @@ void MHSample(uint32 round) {
     AliasTable *table;
     TopicNode *node;
 
-    denominators = (real *)calloc(1 + num_topics, sizeof(real));
-    dwbucket = (real *)calloc(1 + num_topics, sizeof(real));
-    wbucket = (real *)calloc(1 + num_topics, sizeof(real));
+    denominators = (real *)calloc(num_topics, sizeof(real));
+    dwbucket = (real *)calloc(num_topics, sizeof(real));
+    wbucket = (real *)calloc(num_topics, sizeof(real));
 
-    memset(denominators, 0, (1 + num_topics) * sizeof(real));
+    memset(denominators, 0, num_topics * sizeof(real));
     initDenomin(denominators, Vbeta);
 
     gettimeofday(&tv1, NULL);
@@ -287,8 +292,9 @@ void MHSample(uint32 round) {
             addTopicWordCntAlias(topic_word_dist, num_topics, token_entry->topicid, token_entry->wordid, -1);
             doc_entry->num_words--;
             topic_row_sums[token_entry->topicid]--;
-
-            updateDenomin(denominators, Vbeta, token_entry->topicid);
+            if (token_entry->topicid < num_topics) {
+                updateDenomin(denominators, Vbeta, token_entry->topicid);
+            }
 
             memset(dwbucket, 0, num_topics * sizeof(real));
             P_dw = initDW(dwbucket, doc_entry, token_entry->wordid, denominators);
@@ -301,29 +307,28 @@ void MHSample(uint32 round) {
             // start sampling
             new_topicid = -1;
             s = 0;
-            for (c = 0; c < MH_steps; c++) {
-                if (r < s_spec) {
-                    // sample in special topics, topicid range 0 ~ num_topics - 1
+            if (r < s_spec) {
+                // sample in special topics, topicid range 0 ~ num_topics - 1
+                for (c = 0; c < MH_step; c++) {
                     r = (P_dw + table->Q_w) * rand() / (RAND_MAX + 1.);
-                    //printf("docid = %d, r = %.16f, smooth = %.16f, dt = %.16f, tw = %.16f\n", a, r, smooth, dt, tw);
                     if (r < P_dw) {
                         node = doc_entry->nonzeros;
                         while (node) {
-                            s += dbucket[node->topicid];
+                            s += dwbucket[node->topicid];
                             if (s > r) {new_topicid = node->topicid; break;}
                             node = node->next;
                         }
                     } else {
                         table->num_sampled++;
                         if (table->num_sampled > num_topics >> 2) {
-                            memset(wbucket, 0, (1 + num_topics) * sizeof(real));
+                            memset(wbucket, 0, num_topics * sizeof(real));
                             Q_w = initW(wbucket, token_entry->wordid, denominators);
                             generateAliasTable(&alias_tables[token_entry->wordid], wbucket, Q_w);
                         }
                         new_topicid = sampleAliasTable(table);
                     }
-                    // acceptance prob
-                    if (new_topicid != token_entry->topicid) {
+                    // acceptance
+                    if (token_entry->topicid < num_topics && new_topicid != token_entry->topicid) {
                         accept = (getDocTopicCnt(doc_topic_dist, num_topics, a, new_topicid) + alpha) / (getDocTopicCnt(doc_topic_dist, num_topics, a, token_entry->topicid) + alpha);
                         accept *= (getTopicWordCntAlias(topic_word_dist, num_topics, new_topicid, token_entry->wordid) + beta) / (getTopicWordCntAlias(topic_word_dist, num_topics, token_entry->topicid, token_entry->wordid) + beta);
                         accept *= (topic_row_sums[token_entry->topicid] + Vbeta) / (topic_row_sums[new_topicid] + Vbeta);
@@ -331,22 +336,19 @@ void MHSample(uint32 round) {
 
                         if ((real)rand() / (RAND_MAX + 1.) >= accept) new_topicid = token_entry->topicid;
                     }
-                } else {
-                    // sample in common topic, topicid just num_topics
-                    //printf("docid = %d, r = %.16f, s_spec = %.16f, s_comm = %.16f\n", a, r, s_spec, s_comm);
-                    new_topicid = num_topics;
                 }
+            } else {
+                // sample in common topic, topicid just num_topics
+                new_topicid = num_topics;
             }
             
             addDocTopicCnt(doc_topic_dist, num_topics, doc_entry, new_topicid, 1);
-            addTopicWordCntAlias(topic_word_dist, num_topics, new_topicid, word_entry, 1);
+            addTopicWordCntAlias(topic_word_dist, num_topics, new_topicid, token_entry->wordid, 1);
             doc_entry->num_words++;
             topic_row_sums[new_topicid]++;
             if (new_topicid < num_topics) {
                 // update sparse bucket
                 updateDenomin(denominators, Vbeta, new_topicid);
-                smooth += updateS(sbucket, ab, denominators, new_topicid);
-                dt += updateD(dbucket, a, denominators, new_topicid);
             }
 
             token_entry->topicid = new_topicid;
@@ -354,9 +356,8 @@ void MHSample(uint32 round) {
     }
 
     free(denominators);
-    free(sbucket);
-    free(dbucket);
-    free(tbucket);
+    free(dwbucket);
+    free(wbucket);
 }
 
 void saveModel(uint32 suffix) {
@@ -414,7 +415,7 @@ void saveModel(uint32 suffix) {
         for (b = 0; b < doc_entry->num_words; b++) {
             token_entry = &token_entries[doc_entry->idx + b];
             getWordFromId(token_entry->wordid, word_str);
-            fprintf(fout, " %s:1:%d", word_str, token_entry->topicid);
+            fprintf(fout, "%s:1:%d ", word_str, token_entry->topicid);
             memset(word_str, 0, MAX_STRING);
         }
         fprintf(fout, "\n");
@@ -449,6 +450,8 @@ int main(int argc, char **argv) {
         printf("\tnumber of iteration, default is 20\n");
         printf("-save_step <int>\n");
         printf("\tsave model every save_step iteration, default is -1 (no save)\n");
+        printf("-MH_step <int>\n");
+        printf("\tnumber of MH sample, default is 2\n");
         return -1;
     }
 
@@ -480,6 +483,9 @@ int main(int argc, char **argv) {
     if ((a = argPos((char *)"-save_step", argc, argv)) > 0) {
         save_step = atoi(argv[a + 1]);
     }
+    if ((a = argPos((char *)"-MH_step", argc, argv)) > 0) {
+        MH_step = atoi(argv[a + 1]);
+    }
 
     topic_row_sums = (uint32 *)calloc(1 + num_topics, sizeof(uint32));
     memset(topic_row_sums, 0, (1 + num_topics) * sizeof(uint32));
@@ -504,7 +510,7 @@ int main(int argc, char **argv) {
     free(doc_topic_dist);
     free(topic_word_dist);
     free(doc_entries);
-    free(word_entries);
+    free(alias_tables);
     free(token_entries);
 
     return 0;

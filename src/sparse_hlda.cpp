@@ -267,9 +267,9 @@ void gibbsSample(uint32 round) {
     dbucket = (real *)calloc(num_topics, sizeof(real));
     tbucket = (real *)calloc(num_topics, sizeof(real));
 
-    memset(denominators, 0, num_topics);
+    memset(denominators, 0, num_topics * sizeof(real));
     initDenomin(denominators, Vbeta);
-    memset(sbucket, 0, num_topics);
+    memset(sbucket, 0, num_topics * sizeof(real));
     smooth = initS(sbucket, ab, denominators);
     gettimeofday(&tv1, NULL);
     for (a = 0; a < num_docs; a++) {
@@ -283,7 +283,7 @@ void gibbsSample(uint32 round) {
             memcpy(&tv1, &tv2, sizeof(struct timeval));
         }
         doc_entry = &doc_entries[a];
-        memset(dbucket, 0, num_topics);
+        memset(dbucket, 0, num_topics * sizeof(real));
         dt = initD(dbucket, doc_entry, denominators);
 
         for (b = 0; b < doc_entry->num_words; b++) {
@@ -301,7 +301,7 @@ void gibbsSample(uint32 round) {
                 smooth += updateS(sbucket, ab, denominators, token_entry->topicid);
                 dt += updateD(dbucket, a, denominators, token_entry->topicid);
             }
-            memset(tbucket, 0, num_topics);
+            memset(tbucket, 0, num_topics * sizeof(real));
             tw = initT(tbucket, word_entry, a, denominators);
 
             spec_topic_r = (gamma0 + doc_entry->num_words - getDocTopicCnt(doc_topic_dist, num_topics, a, num_topics)) / (1 + doc_entry->num_words);
@@ -440,7 +440,7 @@ void saveModel(uint32 suffix) {
         for (b = 0; b < doc_entry->num_words; b++) {
             token_entry = &token_entries[doc_entry->idx + b];
             getWordFromId(token_entry->wordid, word_str);
-            fprintf(fout, " %s:1:%d", word_str, token_entry->topicid);
+            fprintf(fout, "%s:1:%d ", word_str, token_entry->topicid);
             memset(word_str, 0, MAX_STRING);
         }
         fprintf(fout, "\n");
