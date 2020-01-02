@@ -37,7 +37,6 @@ void generateAliasTable(AliasTable *table, real *wbucket, real Q_w) {
     int t, ta, tb;
     std::vector<int> A, B;
 
-    printf("\nwordid = %d\n", table->wordid);
     // normalize wbucket
     table->Q_w = Q_w;
     memcpy(table->wbucket, wbucket, table->num_topics * sizeof(real));
@@ -59,6 +58,14 @@ void generateAliasTable(AliasTable *table, real *wbucket, real Q_w) {
     }
     // reset num_sampled
     table->num_sampled = 0;
+    #ifdef DEBUG
+    fprintf(stderr, "wordid = %d, alias table is: ", table->wordid);
+    for (int x = 0; x < table->num_topics; x++) {
+        fprintf(stderr, "%d:%.4f:%d ", x, table->P[x], table->G[x]);
+    }
+    fprintf(stderr, "\n");
+    fflush(stderr);
+    #endif
 }
 
 int sampleAliasTable(AliasTable *table) {

@@ -320,26 +320,62 @@ void MHSample(uint32 round) {
                         }
                     } else {
                         table->num_sampled++;
-                        if (table->num_sampled > num_topics >> 2) {
+                        if (table->num_sampled > num_topics / 2) {
                             memset(wbucket, 0, num_topics * sizeof(real));
+                            addTopicWordCntAlias(topic_word_dist, num_topics, token_entry->topicid, token_entry->wordid, 1);
+                            topic_row_sums[token_entry->topicid]++;
+                            if (token_entry->topicid < num_topics) {
+                                updateDenomin(denominators, Vbeta, token_entry->topicid);
+                            }
                             Q_w = initW(wbucket, token_entry->wordid, denominators);
-                            generateAliasTable(&alias_tables[token_entry->wordid], wbucket, Q_w);
+                            generateAliasTable(table, wbucket, Q_w);
+                            addTopicWordCntAlias(topic_word_dist, num_topics, token_entry->topicid, token_entry->wordid, -1);
+                            topic_row_sums[token_entry->topicid]--;
+                            if (token_entry->topicid < num_topics) {
+                                updateDenomin(denominators, Vbeta, token_entry->topicid);
+                            }
                         }
                         new_topicid = sampleAliasTable(table);
                     }
                     // acceptance
-                    if (token_entry->topicid < num_topics && new_topicid != token_entry->topicid) {
-                        accept = (getDocTopicCnt(doc_topic_dist, num_topics, a, new_topicid) + alpha) / (getDocTopicCnt(doc_topic_dist, num_topics, a, token_entry->topicid) + alpha);
-                        accept *= (getTopicWordCntAlias(topic_word_dist, num_topics, new_topicid, token_entry->wordid) + beta) / (getTopicWordCntAlias(topic_word_dist, num_topics, token_entry->topicid, token_entry->wordid) + beta);
-                        accept *= (topic_row_sums[token_entry->topicid] + Vbeta) / (topic_row_sums[new_topicid] + Vbeta);
-                        accept *= (dwbucket[token_entry->topicid] + table->wbucket[token_entry->topicid]) / (dwbucket[new_topicid] + table->wbucket[new_topicid]);
+                    if ((token_entry->topicid < num_topics) && (new_topicid != token_entry->topicid)) {
+                        fprintf(stderr, "calc accept\n");
+                        accept = (getDocTopicCnt(doc_topic_dist, num_topics, a, new_topicid) + alpha) /
+                            (getDocTopicCnt(doc_topic_dist, num_topics, a, token_entry->topicid) + alpha);
+                        accept *= (getTopicWordCntAlias(topic_word_dist, num_topics, new_topicid, token_entry->wordid) + beta) / 
+                            (getTopicWordCntAlias(topic_word_dist, num_topics, token_entry->topicid, token_entry->wordid) + beta);
+                        accept *= (topic_row_sums[token_entry->topicid] + Vbeta) /
+                            (topic_row_sums[new_topicid] + Vbeta);
+                        accept *= (dwbucket[token_entry->topicid] + table->wbucket[token_entry->topicid]) /
+                            (dwbucket[new_topicid] + table->wbucket[new_topicid]);
 
                         if ((real)rand() / (RAND_MAX + 1.) >= accept) new_topicid = token_entry->topicid;
+                        #ifdef DEBUG
+                        fprintf(stderr, "wordid = %d, new_topic = %d, old_topic = %d, ", token_entry->wordid, new_topicid, token_entry->topicid);
+                        fprintf(stderr, "Ndt(new) = %d, Ntw(new) = %d, Nt(new) = %d, Pdw(new) = %.16f, Qw(new) = %.16f, ", 
+                                getDocTopicCnt(doc_topic_dist, num_topics, a, new_topicid),
+                                getTopicWordCntAlias(topic_word_dist, num_topics, new_topicid, token_entry->wordid),
+                                topic_row_sums[new_topicid],
+                                dwbucket[new_topicid],
+                                table->wbucket[new_topicid]);
+                        fprintf(stderr, "Ndt(old) = %d, Ntw(old) = %d, Nt(old) = %d, Pdw(old) = %.16f, Qw(old) = %.16f\n",
+                                getDocTopicCnt(doc_topic_dist, num_topics, a, token_entry->topicid),
+                                getTopicWordCntAlias(topic_word_dist, num_topics, token_entry->topicid, token_entry->wordid),
+                                topic_row_sums[token_entry->topicid],
+                                dwbucket[token_entry->topicid],
+                                table->wbucket[token_entry->topicid]);
+                        fflush(stderr);
+                        #endif
                     }
                 }
             } else {
                 // sample in common topic, topicid just num_topics
                 new_topicid = num_topics;
+            }
+            if (new_topicid < 0) {
+                fprintf(stderr, "***ERROR***: sample fail, r = %.16f, P_dw = %.16f, Q_w = %.16f\n", r, P_dw, table->Q_w);
+                fflush(stderr);
+                exit(2);
             }
             
             addDocTopicCnt(doc_topic_dist, num_topics, doc_entry, new_topicid, 1);

@@ -342,23 +342,7 @@ void gibbsSample(uint32 round) {
                 new_topicid = num_topics;
             }
             if (new_topicid < 0) {
-                fprintf(stderr, "***ERROR***: sample fail, r = %.16f, smooth = %.16f, dt = %.16f, tw = %.16f\n", r, smooth, dt, tw);
-                fprintf(stderr, "***ERROR***: node is NULL? %d, s = %.16f\n", node == NULL ? 1 : 0, s);
-                for (int x = 0; x < num_topics + 1; x++) {
-                    if (getDocTopicCnt(doc_topic_dist, num_topics, a, x) > 0) {
-                        fprintf(stderr, "%d:%d ", x, getDocTopicCnt(doc_topic_dist, num_topics, a, x));
-                    }
-                }
-                fprintf(stderr, "\n");
-                float s2 = 0;
-                for (int x = 0; x < num_topics; x++) {
-                    if (dbucket[x] > 0) {
-                        fprintf(stderr, "%d:%.16f ", x, dbucket[x]);
-                        s2 += dbucket[x];
-                    }
-                }
-                fprintf(stderr, "\ns2 = %.16f\n", s2);
-
+                fprintf(stderr, "***ERROR***: sample fail, r = %.16f, smooth = %.16f, dt = %.16f, tw = %.16f, s = %.16f\n", r, smooth, dt, tw, s);
                 fflush(stderr);
                 exit(2);
             }
