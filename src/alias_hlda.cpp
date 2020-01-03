@@ -339,7 +339,6 @@ void MHSample(uint32 round) {
                     }
                     // acceptance
                     if ((token_entry->topicid < num_topics) && (new_topicid != token_entry->topicid)) {
-                        fprintf(stderr, "calc accept\n");
                         accept = (getDocTopicCnt(doc_topic_dist, num_topics, a, new_topicid) + alpha) /
                             (getDocTopicCnt(doc_topic_dist, num_topics, a, token_entry->topicid) + alpha);
                         accept *= (getTopicWordCntAlias(topic_word_dist, num_topics, new_topicid, token_entry->wordid) + beta) / 
@@ -348,11 +347,14 @@ void MHSample(uint32 round) {
                             (topic_row_sums[new_topicid] + Vbeta);
                         accept *= (dwbucket[token_entry->topicid] + table->wbucket[token_entry->topicid]) /
                             (dwbucket[new_topicid] + table->wbucket[new_topicid]);
-
-                        if ((real)rand() / (RAND_MAX + 1.) >= accept) new_topicid = token_entry->topicid;
+                        if ((real)rand() / (RAND_MAX + 1.) < accept) token_entry->topicid = new_topicid;
                         #ifdef DEBUG
-                        fprintf(stderr, "wordid = %d, new_topic = %d, old_topic = %d, ", token_entry->wordid, new_topicid, token_entry->topicid);
-                        fprintf(stderr, "Ndt(new) = %d, Ntw(new) = %d, Nt(new) = %d, Pdw(new) = %.16f, Qw(new) = %.16f, ", 
+                        fprintf(stderr, "wordid = %d, aceept = %.16f, new_topic = %d, old_topic = %d, ", 
+                                token_entry->wordid,
+                                accept,
+                                new_topicid,
+                                token_entry->topicid);
+                        fprintf(stderr, "Ndt(new) = %d, Ntw(new) = %d, Nt(new) = %d, Pdw(new) = %.16f, Qw(new) = %.16f, ",
                                 getDocTopicCnt(doc_topic_dist, num_topics, a, new_topicid),
                                 getTopicWordCntAlias(topic_word_dist, num_topics, new_topicid, token_entry->wordid),
                                 topic_row_sums[new_topicid],
@@ -370,7 +372,7 @@ void MHSample(uint32 round) {
                 }
             } else {
                 // sample in common topic, topicid just num_topics
-                new_topicid = num_topics;
+                token_entry->topicid = num_topics;
             }
             if (new_topicid < 0) {
                 fprintf(stderr, "***ERROR***: sample fail, r = %.16f, P_dw = %.16f, Q_w = %.16f\n", r, P_dw, table->Q_w);
@@ -378,16 +380,15 @@ void MHSample(uint32 round) {
                 exit(2);
             }
             
-            addDocTopicCnt(doc_topic_dist, num_topics, doc_entry, new_topicid, 1);
-            addTopicWordCntAlias(topic_word_dist, num_topics, new_topicid, token_entry->wordid, 1);
+            addDocTopicCnt(doc_topic_dist, num_topics, doc_entry, token_entry->topicid, 1);
+            addTopicWordCntAlias(topic_word_dist, num_topics, token_entry->topicid, token_entry->wordid, 1);
             doc_entry->num_words++;
-            topic_row_sums[new_topicid]++;
-            if (new_topicid < num_topics) {
+            topic_row_sums[token_entry->topicid]++;
+            if (token_entry->topicid < num_topics) {
                 // update sparse bucket
-                updateDenomin(denominators, Vbeta, new_topicid);
+                updateDenomin(denominators, Vbeta, token_entry->topicid);
             }
 
-            token_entry->topicid = new_topicid;
         }
     }
 
@@ -398,6 +399,7 @@ void MHSample(uint32 round) {
 
 void saveModel(uint32 suffix) {
     uint32 a, b, cnt;
+    int t;
     char fpath[MAX_STRING], word_str[MAX_STRING];
     FILE *fout;
     TopicNode *node;
@@ -426,11 +428,11 @@ void saveModel(uint32 suffix) {
         fprintf(stderr, "***ERROR***: open %s fail", fpath);
         exit(1);
     }
-    for (a = 0; a < num_topics + 1; a++) {
-        if (a == num_topics) fprintf(fout, "common-topic");
-        else fprintf(fout, "topic-%d", a);
+    for (t = 0; t < num_topics + 1; t++) {
+        if (t == num_topics) fprintf(fout, "common-topic");
+        else fprintf(fout, "topic-%d", t);
         for (b = 0; b < vocab_size; b++) {
-            cnt = getTopicWordCntAlias(topic_word_dist, num_topics, a, b);
+            cnt = getTopicWordCntAlias(topic_word_dist, num_topics, t, b);
             if (cnt > 0) {
                 getWordFromId(b, word_str);
                 fprintf(fout, " %s:%d", word_str, cnt);

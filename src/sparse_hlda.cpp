@@ -77,12 +77,12 @@ inline static void updateDenomin(real *denominators, real Vbeta, int topicid) {
 
 // soomth-only bucket
 static real initS(real *sbucket, real ab, real *denominators) {
-    int a;
+    int t;
     real smooth = 0;
 
-    for (a = 0; a < num_topics; a++) {
-        sbucket[a] = ab / denominators[a];
-        smooth += sbucket[a];
+    for (t = 0; t < num_topics; t++) {
+        sbucket[t] = ab / denominators[t];
+        smooth += sbucket[t];
     }
     return smooth;
 }
@@ -369,6 +369,7 @@ void gibbsSample(uint32 round) {
 
 void saveModel(uint32 suffix) {
     uint32 a, b, cnt;
+    int t;
     char fpath[MAX_STRING], word_str[MAX_STRING];
     FILE *fout;
     TopicNode *node;
@@ -397,14 +398,14 @@ void saveModel(uint32 suffix) {
         fprintf(stderr, "***ERROR***: open %s fail", fpath);
         exit(1);
     }
-    for (a = 0; a < num_topics + 1; a++) {
-        if (a == num_topics) fprintf(fout, "common-topic");
-        else fprintf(fout, "topic-%d", a);
+    for (t = 0; t < num_topics + 1; t++) {
+        if (t == num_topics) fprintf(fout, "common-topic ");
+        else fprintf(fout, "topic-%d ", t);
         for (b = 0; b < vocab_size; b++) {
-            cnt = getTopicWordCnt(topic_word_dist, num_topics, a, b);
+            cnt = getTopicWordCnt(topic_word_dist, num_topics, t, b);
             if (cnt > 0) {
                 getWordFromId(b, word_str);
-                fprintf(fout, " %s:%d", word_str, cnt);
+                fprintf(fout, "%s:%d ", word_str, cnt);
                 memset(word_str, 0, MAX_STRING);
             }
         }
