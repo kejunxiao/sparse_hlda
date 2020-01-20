@@ -64,7 +64,7 @@ static uint32 getIdFromWord(const char *word) {
 
 inline static int genRandTopicId() { return rand() % num_topics; }
 
-/* sparse LDA process */
+/* light LDA process */
 // denominators
 static void initDenomin(real *denominators, real Vbeta) {
     int t;
@@ -168,7 +168,6 @@ void learnVocabFromDocs() {
                 }
             }
         } else { // append ch to buf
-            if (len >= MAX_STRING) continue;
             buf[len] = ch;
             len++;
         }
@@ -392,7 +391,6 @@ void saveModel(uint32 suffix) {
         }
         fprintf(fout, "\n");
     }
-    fflush(fout);
 
     // save topic-word
     sprintf(fpath, "%s/%s.%d", output, "topic_word", suffix);
@@ -413,7 +411,6 @@ void saveModel(uint32 suffix) {
         }
         fprintf(fout, "\n");
     }
-    fflush(fout);
 
     // save tokens
     sprintf(fpath, "%s/%s.%d", output, "tokens", suffix);
@@ -431,7 +428,6 @@ void saveModel(uint32 suffix) {
         }
         fprintf(fout, "\n");
     }
-    fflush(fout);
 }
 
 int main(int argc, char **argv) {

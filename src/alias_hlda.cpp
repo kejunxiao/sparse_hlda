@@ -66,7 +66,7 @@ static uint32 getIdFromWord(const char *word) {
 
 inline static int genRandTopicId() { return rand() % num_topics; }
 
-/* AliasLDA */
+/* LightLDA */
 // topic-word cnt
 inline void addTopicWordCntAlias(uint32 *topic_word_dist, uint32 num_topics, int topicid, uint32 wordid, int delta) {
     topic_word_dist[wordid * (1 + num_topics) + topicid] += delta;
