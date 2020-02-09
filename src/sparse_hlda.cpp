@@ -17,7 +17,7 @@ uint32 num_topics = 0;
 real alpha = 0.05;
 real beta = 0.01;
 real gamma0 = 0.1;
-real beta2 = 0.01;
+real eta = 0.01;
 uint32 num_iters = 20;
 int save_step = -1;
 
@@ -29,7 +29,7 @@ std::unordered_map<std::string, uint32> word2id;
 std::unordered_map<uint32, std::string> id2word;
 
 // model related
-uint32 *topic_row_sums = NULL;
+uint32 *topic_word_sums = NULL;
 TopicNode *doc_topic_dist = NULL;
 TopicNode *topic_word_dist = NULL;
 
@@ -68,11 +68,11 @@ inline static int genRandTopicId() { return rand() % num_topics; }
 // denominators
 static void initDenomin(real *denominators, real Vbeta) {
     int t;
-    for (t = 0; t < num_topics; t++) denominators[t] = Vbeta + topic_row_sums[t];
+    for (t = 0; t < num_topics; t++) denominators[t] = Vbeta + topic_word_sums[t];
 }
 
 inline static void updateDenomin(real *denominators, real Vbeta, int topicid) {
-    denominators[topicid] = Vbeta + topic_row_sums[topicid];
+    denominators[topicid] = Vbeta + topic_word_sums[topicid];
 }
 
 // soomth-only bucket
@@ -134,8 +134,8 @@ static real initT(real *tbucket, WordEntry *word_entry, uint32 docid, real *deno
 }
 
 // common-word bucket
-inline static real initComm(real Vbeta2, uint32 wordid) {
-    return (getTopicWordCnt(topic_word_dist, num_topics, num_topics, wordid) + beta2) / (topic_row_sums[num_topics] + Vbeta2);
+inline static real initComm(real Veta, uint32 wordid) {
+    return (getTopicWordCnt(topic_word_dist, num_topics, num_topics, wordid) + eta) / (topic_word_sums[num_topics] + Veta);
 }
 
 /* public interface */
@@ -227,7 +227,7 @@ void loadDocs() {
                 else token_entry->topicid = genRandTopicId();
                 addDocTopicCnt(doc_topic_dist, num_topics, doc_entry, token_entry->topicid, 1);
                 addTopicWordCnt(topic_word_dist, num_topics, token_entry->topicid, &word_entries[wordid], 1);
-                topic_row_sums[token_entry->topicid]++;
+                topic_word_sums[token_entry->topicid]++;
             }
             c += freq;
             memset(buf, 0, len);
@@ -257,7 +257,7 @@ void gibbsSample(uint32 round) {
     int new_topicid;
     struct timeval tv1, tv2;
     real smooth, dt, tw, spec_topic_r, s_spec, s_comm, r, s, *denominators, *sbucket, *dbucket, *tbucket;
-    real Kalpha = num_topics * alpha, Vbeta = vocab_size * beta, Vbeta2 = vocab_size * beta2, ab = alpha * beta;
+    real Kalpha = num_topics * alpha, Vbeta = vocab_size * beta, Veta = vocab_size * eta, ab = alpha * beta;
     DocEntry *doc_entry;
     TokenEntry *token_entry;
     WordEntry *word_entry;
@@ -276,9 +276,9 @@ void gibbsSample(uint32 round) {
     for (a = 0; a < num_docs; a++) {
         if (a > 0 && a % 10000 == 0) {
             gettimeofday(&tv2, NULL);
-            printf("%cProcess: %.2f%% Documents/Sec: %.2fK", 
+            printf("%cProcess: %.2f%% Documents/Sec: %.2fK",
                    13,
-                   (round + a * 1. / num_docs) * 100. / num_iters, 
+                   (round + a * 1. / num_docs) * 100. / num_iters,
                    10. / (tv2.tv_sec - tv1.tv_sec + (tv2.tv_usec - tv1.tv_usec) / 1000000.));
             fflush(stdout);
             memcpy(&tv1, &tv2, sizeof(struct timeval));
@@ -294,7 +294,7 @@ void gibbsSample(uint32 round) {
             addDocTopicCnt(doc_topic_dist, num_topics, doc_entry, token_entry->topicid, -1);
             addTopicWordCnt(topic_word_dist, num_topics, token_entry->topicid, word_entry, -1);
             doc_entry->num_words--;
-            topic_row_sums[token_entry->topicid]--;
+            topic_word_sums[token_entry->topicid]--;
 
             if (token_entry->topicid < num_topics) {
                 // only update special-topics
@@ -308,7 +308,7 @@ void gibbsSample(uint32 round) {
             spec_topic_r = (gamma0 + doc_entry->num_words - getDocTopicCnt(doc_topic_dist, num_topics, a, num_topics)) / (1 + doc_entry->num_words);
 
             s_spec = spec_topic_r * (smooth + dt + tw) / (Kalpha + doc_entry->num_words - getDocTopicCnt(doc_topic_dist, num_topics, a, num_topics));
-            s_comm = (1. - spec_topic_r) * initComm(Vbeta2, token_entry->wordid);
+            s_comm = (1. - spec_topic_r) * initComm(Veta, token_entry->wordid);
             r = (s_spec + s_comm) * rand() / RAND_MAX;
             // start sampling
             new_topicid = -1;
@@ -350,7 +350,7 @@ void gibbsSample(uint32 round) {
             addDocTopicCnt(doc_topic_dist, num_topics, doc_entry, new_topicid, 1);
             addTopicWordCnt(topic_word_dist, num_topics, new_topicid, word_entry, 1);
             doc_entry->num_words++;
-            topic_row_sums[new_topicid]++;
+            topic_word_sums[new_topicid]++;
             if (new_topicid < num_topics) {
                 // update sparse bucket
                 updateDenomin(denominators, Vbeta, new_topicid);
@@ -456,7 +456,7 @@ int main(int argc, char **argv) {
         printf("\tsymmetric topic-word prior probability, default is 0.01\n");
         printf("-gamma0 <float>\n");
         printf("\t\"special topic\" prior probability, default is 0.1\n");
-        printf("-beta2 <float>\n");
+        printf("-eta <float>\n");
         printf("\t\"common topic\"-word prior probability, default is 0.01\n");
         printf("-num_iters <int>\n");
         printf("\tnumber of iteration, default is 20\n");
@@ -481,11 +481,11 @@ int main(int argc, char **argv) {
     if ((a = argPos((char *)"-beta", argc, argv)) > 0) {
         beta = atof(argv[a + 1]);
     }
-    if ((a = argPos((char *)"-gamma", argc, argv)) > 0) {
+    if ((a = argPos((char *)"-gamma0", argc, argv)) > 0) {
         gamma0 = atof(argv[a + 1]);
     }
-    if ((a = argPos((char *)"-beta2", argc, argv)) > 0) {
-        beta2 = atof(argv[a + 1]);
+    if ((a = argPos((char *)"-eta", argc, argv)) > 0) {
+        eta = atof(argv[a + 1]);
     }
     if ((a = argPos((char *)"-num_iters", argc, argv)) > 0) {
         num_iters = atoi(argv[a + 1]);
@@ -494,8 +494,8 @@ int main(int argc, char **argv) {
         save_step = atoi(argv[a + 1]);
     }
 
-    topic_row_sums = (uint32 *)calloc(1 + num_topics, sizeof(uint32));
-    memset(topic_row_sums, 0, (1 + num_topics) * sizeof(uint32));
+    topic_word_sums = (uint32 *)calloc(1 + num_topics, sizeof(uint32));
+    memset(topic_word_sums, 0, (1 + num_topics) * sizeof(uint32));
 
     // load documents and allocate memory for entries
     srand(time(NULL));
@@ -512,7 +512,7 @@ int main(int argc, char **argv) {
     // save model
     saveModel(num_iters);
 
-    free(topic_row_sums);
+    free(topic_word_sums);
     free(doc_topic_dist);
     free(topic_word_dist);
     free(doc_entries);
