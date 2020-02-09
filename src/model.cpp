@@ -22,10 +22,6 @@ void wordEntryInit(WordEntry *word_entry, uint32 wordid) {
     word_entry->nonzeros = NULL;
 }
 
-uint32 getDocTopicCnt(TopicNode *doc_topic_dist, uint32 num_topics, uint32 docid, int topicid) {
-    return doc_topic_dist[docid * (1 + num_topics) + topicid].cnt;
-}
-
 void addDocTopicCnt(TopicNode *doc_topic_dist, uint32 num_topics, DocEntry *doc_entry, int topicid, int delta) {
     uint32 oldcnt, offset;
     TopicNode *node;
@@ -50,10 +46,6 @@ void addDocTopicCnt(TopicNode *doc_topic_dist, uint32 num_topics, DocEntry *doc_
         node->prev = NULL;
         node->next = NULL;
     }
-}
-
-uint32 getTopicWordCnt(TopicNode *topic_word_dist, uint32 num_topics, int topicid, uint32 wordid) {
-    return topic_word_dist[wordid * (1 + num_topics) + topicid].cnt;
 }
 
 void addTopicWordCnt(TopicNode *topic_word_dist, uint32 num_topics, int topicid, WordEntry *word_entry, int delta) {
