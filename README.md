@@ -15,25 +15,25 @@ Hierarchy Latent Dirichlet Allocation
 _____________________________________
 
 Parameters:
--input <file>
+* -input <file>
 	path of docs file, lines of file look like "word1:freq1:topic1 word2:freq2:topic2 ... \n"
 	word is <string>, freq is <int>, represent word-freqence in the document, topic is <int>, range from 0 to num_topics,
 	used to anchor the word in the topicid, if you don't want to do that, set the topic < 0
--output <dir>
+* -output <dir>
 	dir of model(word-topic, doc-topic) file
--num_topics <int>
+* -num_topics <int>
 	number of topics
--alpha <float>
+* -alpha <float>
 	symmetric doc-topic prior probability, default is 0.05
--beta <float>
+* -beta <float>
 	symmetric topic-word prior probability, default is 0.01
--gamma0 <float>
+* -gamma0 <float>
 	"special topic" prior probability, default is 0.1
--eta <float>
+* -eta <float>
 	"common topic"-word prior probability, default is 0.01
--num_iters <int>
+* -num_iters <int>
 	number of iteration, default is 20
--save_step <int>
+* -save_step <int>
 	save model every save_step iteration, default is -1 (no save)
 
 # usage:
