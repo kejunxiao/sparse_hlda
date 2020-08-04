@@ -14,10 +14,10 @@
 char input[MAX_STRING];
 char output[MAX_STRING];
 uint32 num_topics = 0;
-real alpha = 0.05;
-real beta = 0.01;
-real gamma0 = 0.1;
-real eta = 0.01;
+real alpha = 0.05; // doc-topic prior
+real beta = 0.01; // topic-word prior
+real beta_common = 0.01;
+real gamma0 = 0.9;
 uint32 num_iters = 20;
 int save_step = -1;
 
@@ -135,7 +135,7 @@ static real initT(real *tbucket, WordEntry *word_entry, uint32 docid, real *deno
 
 // common-word bucket
 inline static real initComm(real Veta, uint32 wordid) {
-    return (getTopicWordCnt(topic_word_dist, num_topics, num_topics, wordid) + eta) / (topic_word_sums[num_topics] + Veta);
+    return (getTopicWordCnt(topic_word_dist, num_topics, num_topics, wordid) + beta_common) / (topic_word_sums[num_topics] + Veta);
 }
 
 /* public interface */
@@ -257,7 +257,7 @@ void gibbsSample(uint32 round) {
     int new_topicid;
     struct timeval tv1, tv2;
     real smooth, dt, tw, spec_topic_r, s_spec, s_comm, r, s, *denominators, *sbucket, *dbucket, *tbucket;
-    real Kalpha = num_topics * alpha, Vbeta = vocab_size * beta, Veta = vocab_size * eta, ab = alpha * beta;
+    real Kalpha = num_topics * alpha, Vbeta = vocab_size * beta, Veta = vocab_size * beta_common, ab = alpha * beta;
     DocEntry *doc_entry;
     TokenEntry *token_entry;
     WordEntry *word_entry;
@@ -454,10 +454,10 @@ int main(int argc, char **argv) {
         printf("\tsymmetric doc-topic prior probability, default is 0.05\n");
         printf("-beta <float>\n");
         printf("\tsymmetric topic-word prior probability, default is 0.01\n");
-        printf("-gamma0 <float>\n");
-        printf("\t\"special topic\" prior probability, default is 0.1\n");
-        printf("-eta <float>\n");
+        printf("-beta_common <float>\n");
         printf("\t\"common topic\"-word prior probability, default is 0.01\n");
+        printf("-gamma0 <float>\n");
+        printf("\t\"special topic\" prior probability, default is 0.9\n");
         printf("-num_iters <int>\n");
         printf("\tnumber of iteration, default is 20\n");
         printf("-save_step <int>\n");
@@ -481,11 +481,11 @@ int main(int argc, char **argv) {
     if ((a = argPos((char *)"-beta", argc, argv)) > 0) {
         beta = atof(argv[a + 1]);
     }
+    if ((a = argPos((char *)"-beta_common", argc, argv)) > 0) {
+        beta_common = atof(argv[a + 1]);
+    }
     if ((a = argPos((char *)"-gamma0", argc, argv)) > 0) {
         gamma0 = atof(argv[a + 1]);
-    }
-    if ((a = argPos((char *)"-eta", argc, argv)) > 0) {
-        eta = atof(argv[a + 1]);
     }
     if ((a = argPos((char *)"-num_iters", argc, argv)) > 0) {
         num_iters = atoi(argv[a + 1]);
