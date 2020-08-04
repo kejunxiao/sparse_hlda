@@ -18,6 +18,7 @@ real alpha = 0.05; // doc-topic prior
 real beta = 0.01; // topic-word prior
 real beta_common = 0.01;
 real gamma0 = 0.1;
+real lr = 0.1; // smooth learning rate
 uint32 num_iters = 20;
 int save_step = -1;
 
@@ -31,7 +32,9 @@ std::unordered_map<uint32, std::string> id2word;
 // model related
 uint32 *topic_word_sums = NULL;
 TopicNode *doc_topic_dist = NULL;
+TopicNode *doc_alpha_dist = NULL;
 TopicNode *topic_word_dist = NULL;
+TopicNode *beta_word_dist = NULL;
 
 DocEntry *doc_entries = NULL;
 WordEntry *word_entries = NULL;
