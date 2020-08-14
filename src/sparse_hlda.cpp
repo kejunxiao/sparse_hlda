@@ -168,7 +168,7 @@ void learnVocabFromDocs() {
                 }
             }
         } else { // append ch to buf
-            if (len == MAX_STRING) continue;
+            if (len == MAX_STRING - 1) continue;
             buf[len] = ch;
             len++;
         }
@@ -245,7 +245,7 @@ void loadDocs() {
                 }
             }
         } else { // append ch to buf
-            if (len == MAX_STRING) continue;
+            if (len == MAX_STRING - 1) continue;
             buf[len] = ch;
             len++;
         }

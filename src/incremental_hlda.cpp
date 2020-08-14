@@ -13,12 +13,14 @@
 // parameters
 char input[MAX_STRING];
 char output[MAX_STRING];
+char init_doc_alpha[MAX_STRING];
+char init_beta_word[MAX_STRING];
 uint32 num_topics = 0;
 real alpha = 0.05; // doc-topic prior
 real beta = 0.01; // topic-word prior
 real beta_common = 0.01;
 real gamma0 = 0.1;
-real lr = 0.1; // smooth learning rate
+real eta = 0.1; // smooth learning rate
 uint32 num_iters = 20;
 int save_step = -1;
 
@@ -155,7 +157,10 @@ void learnVocabFromDocs() {
     len = 0;
     while (!feof(fin)) {
         ch = fgetc(fin);
-        if (ch == ' ' || ch == '\n') {
+        if (ch == '\t') {
+            buf[len] = '\0';
+            len = 0;
+        } else if (ch == ' ' || ch == '\n') {
             buf[len] = '\0';
             token = strtok(buf, ":");  // get word-string
             getIdFromWord(token);
@@ -181,9 +186,13 @@ void learnVocabFromDocs() {
     // allocate memory for doc-topic distribution
     doc_topic_dist = (TopicNode *)calloc(num_docs * (1 + num_topics), sizeof(TopicNode));
     for (a = 0; a < num_docs * (1 + num_topics); a++) topicNodeInit(&doc_topic_dist[a], a % (1 + num_topics));
+    doc_alpha_dist = (TopicNode *)calloc(num_docs * (1 + num_topics), sizeof(TopicNode));
+    for (a = 0; a < num_docs * (1 + num_topics); a++) topicNodeInit(&doc_alpha_dist[a], a % (1 + num_topics));
     // allocate memory for topic-word distribution
     topic_word_dist = (TopicNode *)calloc(vocab_size * (1 + num_topics), sizeof(TopicNode));
     for (a = 0; a < vocab_size * (1 + num_topics); a++) topicNodeInit(&topic_word_dist[a], a % (1 + num_topics));
+    topic_beta_dist = (TopicNode *)calloc(vocab_size * (1 + num_topics), sizeof(TopicNode));
+    for (a = 0; a < vocab_size * (1 + num_topics); a++) topicNodeInit(&topic_beta_dist[a], a % (1 + num_topics));
     // allocate memory for doc_entries
     doc_entries = (DocEntry *)calloc(num_docs, sizeof(DocEntry));
     for (a = 0; a < num_docs; a++) docEntryInit(&doc_entries[a], a);
@@ -248,7 +257,7 @@ void loadDocs() {
                 }
             }
         } else { // append ch to buf
-            if (len >= MAX_STRING) continue;
+            if (len == MAX_STRING - 1) continue;
             buf[len] = ch;
             len++;
         }
@@ -403,7 +412,7 @@ void saveModel(uint32 suffix) {
         fprintf(stderr, "***ERROR***: open %s fail", fpath);
         exit(1);
     }
-    for (t = 0; t < num_topics + 1; t++) {
+    for (t = 0; t < 1 + num_topics; t++) {
         if (t == num_topics) fprintf(fout, "common-topic ");
         else fprintf(fout, "topic-%d ", t);
         for (b = 0; b < vocab_size; b++) {
@@ -440,37 +449,64 @@ void saveModel(uint32 suffix) {
 int main(int argc, char **argv) {
     int a;
 
+    srand(time(NULL));
+
     if (argc == 1) {
         printf("_____________________________________\n\n");
         printf("Hierarchy Latent Dirichlet Allocation\n\n");
         printf("_____________________________________\n\n");
         printf("Parameters:\n");
+
         printf("-input <file>\n");
-        printf("\tpath of docs file, lines of file look like \"word1:freq1:topic1 word2:freq2:topic2 ... \\n\"\n");
-        printf("\tword is <string>, freq is <int>, represent word-freqence in the document, topic is <int>, range from 0 to num_topics,\n");
+        printf("\tpath of docs file, lines of file look like \"docid<TAB>word1:freq1:topic1<SPACE>word2:freq2:topic2<SPACE> ... \\n\"\n");
+        printf("\tdocid is <string>, word is <string>, freq is <int>, represent word-freqence in the document, topic is <int>, range from 0 to num_topics,\n");
         printf("\tused to anchor the word in the topicid, if you don't want to do that, set the topic < 0\n");
+
+        printf("-init_doc_alpha <file>\n");
+        printf("\tpath of init doc-alpha distribution file\n");
+
+        printf("-init_beta_word <file>\n");
+        printf("\tpath of init beta-word distribution file\n");
+
         printf("-output <dir>\n");
-        printf("\tdir of model(word-topic, doc-topic) file\n");
+        printf("\tdir of model(doc-topic, doc-alpha, topic-word, beta-word) file\n");
+
         printf("-num_topics <int>\n");
         printf("\tnumber of topics\n");
+
         printf("-alpha <float>\n");
         printf("\tsymmetric doc-topic prior probability, default is 0.05\n");
+
         printf("-beta <float>\n");
         printf("\tsymmetric topic-word prior probability, default is 0.01\n");
+
         printf("-beta_common <float>\n");
         printf("\t\"common topic\"-word prior probability, default is 0.01\n");
+
         printf("-gamma0 <float>\n");
         printf("\t\"special topic\" prior probability, default is 0.1\n");
+
+        printf("-eta <float>\n");
+        printf("\tlearning rate of asymmetric incremental doc-alpha/beta-word prior, default is 0.1\n");
+
         printf("-num_iters <int>\n");
         printf("\tnumber of iteration, default is 20\n");
+
         printf("-save_step <int>\n");
         printf("\tsave model every save_step iteration, default is -1 (no save)\n");
+
         return -1;
     }
 
     // parse args
     if ((a = argPos((char *)"-input", argc, argv)) > 0) {
         strcpy(input, argv[a + 1]);
+    }
+    if ((a = argPos((char *)"-init_doc_alpha", argc, argv)) > 0) {
+        strcpy(init_doc_alpha, argv[a + 1]);
+    }
+    if ((a = argPos((char *)"-init_beta_word", argc, argv)) > 0) {
+        strcpy(init_beta_word, argv[a + 1]);
     }
     if ((a = argPos((char *)"-output", argc, argv)) > 0) {
         strcpy(output, argv[a + 1]);
@@ -490,6 +526,9 @@ int main(int argc, char **argv) {
     if ((a = argPos((char *)"-gamma0", argc, argv)) > 0) {
         gamma0 = atof(argv[a + 1]);
     }
+    if ((a = argPos((char *)"-eta", argc, argv)) > 0) {
+        eta = atof(argv[a + 1]);
+    }
     if ((a = argPos((char *)"-num_iters", argc, argv)) > 0) {
         num_iters = atoi(argv[a + 1]);
     }
@@ -497,11 +536,11 @@ int main(int argc, char **argv) {
         save_step = atoi(argv[a + 1]);
     }
 
+    // allocate memory for topic_word_sums
     topic_word_sums = (uint32 *)calloc(1 + num_topics, sizeof(uint32));
     memset(topic_word_sums, 0, (1 + num_topics) * sizeof(uint32));
 
     // load documents and allocate memory for entries
-    srand(time(NULL));
     learnVocabFromDocs();
     loadDocs();
 
@@ -517,7 +556,9 @@ int main(int argc, char **argv) {
 
     free(topic_word_sums);
     free(doc_topic_dist);
+    free(doc_alpha_dist);
     free(topic_word_dist);
+    free(beta_word_dist);
     free(doc_entries);
     free(word_entries);
     free(token_entries);
