@@ -20,7 +20,7 @@ real alpha = 0.05; // doc-topic prior
 real beta = 0.01; // topic-word prior
 real beta_common = 0.01;
 real gamma0 = 0.1;
-real eta = 0.1; // smooth learning rate
+real eta = 0.1; // prior confidence coefficient
 uint32 num_iters = 20;
 int save_step = -1;
 
@@ -188,8 +188,8 @@ static real initT(real *tbucket, WordEntry *word_entry, uint32 docid, real *deno
 }
 
 // common-word bucket
-inline static real initComm(real Veta, uint32 wordid) {
-    return (getTopicWordCnt(topic_word_dist, num_topics, num_topics, wordid) + beta_common) / (topic_word_sums[num_topics] + Veta);
+inline static real initComm(real Vbeta_common, uint32 wordid) {
+    return (getTopicWordCnt(topic_word_dist, num_topics, num_topics, wordid) + beta_common) / (topic_word_sums[num_topics] + Vbeta_common);
 }
 
 /* public interface */
@@ -440,14 +440,16 @@ void loadInitWordPrior() {
             len++;
         }
     }
+    printf("init-beta-word load done.\n");
 }
 
 void gibbsSample(uint32 round) {
     uint32 a, b;
     int new_topicid;
     struct timeval tv1, tv2;
-    real smooth, dt, tw, spec_topic_r, s_spec, s_comm, r, s, *denominators, *sbucket, *dbucket, *tbucket;
-    real Kalpha = num_topics * alpha, Vbeta = vocab_size * beta, Veta = vocab_size * beta_common, ab = alpha * beta;
+    real smooth, dt, tw, spec_topic_r, s_spec, s_comm, r, s;
+    real *denominators, *sbucket, *dbucket, *abucket, *tbucket, *bbucket;
+    real Kalpha = num_topics * alpha, Vbeta = vocab_size * beta, Vbeta_common = vocab_size * beta_common, ab = alpha * beta;
     DocEntry *doc_entry;
     TokenEntry *token_entry;
     WordEntry *word_entry;
@@ -498,7 +500,7 @@ void gibbsSample(uint32 round) {
             spec_topic_r = (gamma0 + doc_entry->num_words - getDocTopicCnt(doc_topic_dist, num_topics, a, num_topics)) / (1 + doc_entry->num_words);
 
             s_spec = spec_topic_r * (smooth + dt + tw) / (Kalpha + doc_entry->num_words - getDocTopicCnt(doc_topic_dist, num_topics, a, num_topics));
-            s_comm = (1. - spec_topic_r) * initComm(Veta, token_entry->wordid);
+            s_comm = (1. - spec_topic_r) * initComm(Vbeta_common, token_entry->wordid);
             r = (s_spec + s_comm) * rand() / RAND_MAX;
             // start sampling
             new_topicid = -1;
