@@ -122,11 +122,11 @@ inline static int genRandTopicId() { return rand() % num_topics; }
 // denominators
 static void initDenomin(real *denominators, real Vbeta) {
     int t;
-    for (t = 0; t < num_topics; t++) denominators[t] = Vbeta + topic_word_sums[t];
+    for (t = 0; t < num_topics; t++) denominators[t] = Vbeta + topic_word_sums[t] + eta * beta_word_sums[t];
 }
 
 inline static void updateDenomin(real *denominators, real Vbeta, int topicid) {
-    denominators[topicid] = Vbeta + topic_word_sums[topicid];
+    denominators[topicid] = Vbeta + topic_word_sums[topicid] + eta * beta_word_sums[topicid];
 }
 
 // soomth-only bucket
@@ -173,6 +173,20 @@ static real updateD(real *dbucket, uint32 docid, real *denominators, int topicid
     return delta;
 }
 
+// doc-alpha bucket
+static real initA(real *abucket, DocEntry *init_doc_entry, real *denominators) {
+    TopicNode *node;
+    real da = 0;
+
+    node = init_doc_entry->nonzeros;
+    while (node) {
+        abucket[node->topicid] = eta * node->cnt * beta / denominators[node->topicid];
+        da += abucket[node->topicid];
+        node = node->next;
+    }
+    return da;
+}
+
 // topic-word bucket
 static real initT(real *tbucket, WordEntry *word_entry, uint32 docid, real *denominators) {
     TopicNode *node;
@@ -180,16 +194,30 @@ static real initT(real *tbucket, WordEntry *word_entry, uint32 docid, real *deno
 
     node = word_entry->nonzeros;
     while (node) {
-        tbucket[node->topicid] = (alpha + getDocTopicCnt(doc_topic_dist, num_topics, docid, node->topicid)) * node->cnt / denominators[node->topicid];
+        tbucket[node->topicid] = (alpha + getDocTopicCnt(doc_topic_dist, num_topics, docid, node->topicid) + eta * getDocTopicCnt(doc_alpha_dist, num_topics, docid, node->topicid)) * node->cnt / denominators[node->topicid];
         tw += tbucket[node->topicid];
         node = node->next;
     }
     return tw;
 }
 
+// beta-word bucket
+static real initB(real *bbucket, WordEntry *init_word_entry, uint32 docid, real *denominators) {
+    TopicNode *node;
+    real bw = 0;
+
+    node = init_word_entry->nonzeros;
+    while (node) {
+        bbucket[node->topicid] = (alpha + getDocTopicCnt(doc_topic_dist, num_topics, docid, node->topicid) + eta * getDocTopicCnt(doc_alpha_dist, num_topics, docid, node->topicid)) * eta * node->cnt / denominators[node->topicid];
+        bw += bbucket[node->topicid];
+        node = node->next;
+    }
+    return bw;
+}
+
 // common-word bucket
 inline static real initComm(real Vbeta_common, uint32 wordid) {
-    return (getTopicWordCnt(topic_word_dist, num_topics, num_topics, wordid) + beta_common) / (topic_word_sums[num_topics] + Vbeta_common);
+    return (getTopicWordCnt(topic_word_dist, num_topics, num_topics, wordid) + eta * getTopicWordCnt(beta_word_dist, num_topics, num_topics, wordid) + beta_common) / (topic_word_sums[num_topics] + eta * beta_word_sums[num_topics] + Vbeta_common);
 }
 
 /* public interface */
@@ -364,7 +392,7 @@ void loadInitDocPrior() {
                 topicid = atoi(token);
                 cnt = atoi(strtok(NULL, ":")); // get cnt
                 doc_entry = &init_doc_entries[docid];
-                addDocTopicCnt(doc_alpha_dist, num_topics, init_doc_entries, topicid, cnt);
+                addDocTopicCnt(doc_alpha_dist, num_topics, doc_entry, topicid, cnt);
             }
             if (ch == '\n') {
                 if (num_read % 1000 == 0) {
@@ -444,27 +472,34 @@ void loadInitWordPrior() {
 }
 
 void gibbsSample(uint32 round) {
-    uint32 a, b;
     int new_topicid;
-    struct timeval tv1, tv2;
-    real smooth, dt, tw, spec_topic_r, s_spec, s_comm, r, s;
+    uint32 a, b, n_spec, init_n_spec;
+    real smooth, dt, da, tw, bw, spec_topic_r, s_spec, s_comm, r, s;
     real *denominators, *sbucket, *dbucket, *abucket, *tbucket, *bbucket;
     real Kalpha = num_topics * alpha, Vbeta = vocab_size * beta, Vbeta_common = vocab_size * beta_common, ab = alpha * beta;
-    DocEntry *doc_entry;
+    struct timeval tv1, tv2;
+    DocEntry *doc_entry, *init_doc_entry;
+    WordEntry *word_entry, *init_word_entry;
     TokenEntry *token_entry;
-    WordEntry *word_entry;
     TopicNode *node;
 
+    // allocate memory for buckets
     denominators = (real *)calloc(num_topics, sizeof(real));
     sbucket = (real *)calloc(num_topics, sizeof(real));
     dbucket = (real *)calloc(num_topics, sizeof(real));
+    abucket = (real *)calloc(num_topics, sizeof(real));
     tbucket = (real *)calloc(num_topics, sizeof(real));
+    bbucket = (real *)calloc(num_topics, sizeof(real));
 
+    // init denominators
     memset(denominators, 0, num_topics * sizeof(real));
     initDenomin(denominators, Vbeta);
+    // init soomth-only bucket
     memset(sbucket, 0, num_topics * sizeof(real));
     smooth = initS(sbucket, ab, denominators);
+
     gettimeofday(&tv1, NULL);
+    // iterate docs
     for (a = 0; a < num_docs; a++) {
         if (a > 0 && a % 10000 == 0) {
             gettimeofday(&tv2, NULL);
@@ -476,12 +511,18 @@ void gibbsSample(uint32 round) {
             memcpy(&tv1, &tv2, sizeof(struct timeval));
         }
         doc_entry = &doc_entries[a];
+        init_doc_entry = &init_doc_entries[a];
+        // init doc-topic bucket
         memset(dbucket, 0, num_topics * sizeof(real));
         dt = initD(dbucket, doc_entry, denominators);
-
+        // init doc-alpha bucket
+        memset(abucket, 0, num_topics * sizeof(real));
+        da = initA(abucket, init_doc_entry, denominators);
+        // iterate tokens
         for (b = 0; b < doc_entry->num_words; b++) {
             token_entry = &token_entries[doc_entry->idx + b];
             word_entry = &word_entries[token_entry->wordid];
+            init_word_entry = &init_word_entries[token_entry->wordid];
 
             addDocTopicCnt(doc_topic_dist, num_topics, doc_entry, token_entry->topicid, -1);
             addTopicWordCnt(topic_word_dist, num_topics, token_entry->topicid, word_entry, -1);
@@ -494,12 +535,18 @@ void gibbsSample(uint32 round) {
                 smooth += updateS(sbucket, ab, denominators, token_entry->topicid);
                 dt += updateD(dbucket, a, denominators, token_entry->topicid);
             }
+            // init topic-word bucket
             memset(tbucket, 0, num_topics * sizeof(real));
             tw = initT(tbucket, word_entry, a, denominators);
+            // init beta-word bucket
+            memset(bbucket, 0, num_topics * sizeof(real));
+            bw = initB(bbucket, init_word_entry, a, denominators);
 
-            spec_topic_r = (gamma0 + doc_entry->num_words - getDocTopicCnt(doc_topic_dist, num_topics, a, num_topics)) / (1 + doc_entry->num_words);
+            n_spec = doc_entry->num_words - getDocTopicCnt(doc_topic_dist, num_topics, a, num_topics);
+            init_n_spec = init_doc_entry->num_words - getDocTopicCnt(doc_alpha_dist, num_topics, a, num_topics);
+            spec_topic_r = (gamma0 + n_spec + eta * init_n_spec) / (1 + doc_entry->num_words + eta * init_doc_entry->num_words);
 
-            s_spec = spec_topic_r * (smooth + dt + tw) / (Kalpha + doc_entry->num_words - getDocTopicCnt(doc_topic_dist, num_topics, a, num_topics));
+            s_spec = spec_topic_r * (smooth + dt + da + tw + bw) / (Kalpha + n_spec + eta * init_n_spec);
             s_comm = (1. - spec_topic_r) * initComm(Vbeta_common, token_entry->wordid);
             r = (s_spec + s_comm) * rand() / RAND_MAX;
             // start sampling
@@ -507,13 +554,13 @@ void gibbsSample(uint32 round) {
             s = 0;
             if (r < s_spec) { 
                 // sample in special topics, topicid range 0 ~ num_topics - 1
-                r = (smooth + dt + tw) * rand() / (RAND_MAX + 1.);
-                if (r < smooth) {
+                r = (smooth + dt + da + tw + bw) * rand() / (RAND_MAX + 1.);
+                if (r < smooth) { // smooth-only bucket
                     for (new_topicid = 0; new_topicid < num_topics; new_topicid++) {
                         s += sbucket[new_topicid];
                         if (s > r) break;
                     }
-                } else if (r < smooth + dt) {
+                } else if (r < smooth + dt) { // doc-topic bucket
                     r -= smooth;
                     node = doc_entry->nonzeros;
                     while (node) {
@@ -521,11 +568,27 @@ void gibbsSample(uint32 round) {
                         if (s > r) {new_topicid = node->topicid; break;}
                         node = node->next;
                     }
-                } else {
+                } else if (r < smooth + dt + da) { // doc-alpha bucket
                     r -= smooth + dt;
+                    node = init_doc_entry->nonzeros;
+                    while (node) {
+                        s += abucket[node->topicid];
+                        if (s > r) {new_topicid = node->topicid; break;}
+                        node = node->next;
+                    }
+                } else if (r < smooth + dt + da + tw) { // topic-word bucket
+                    r -= smooth + dt + da;
                     node = word_entry->nonzeros;
                     while (node) {
                         s += tbucket[node->topicid];
+                        if (s > r) {new_topicid = node->topicid; break;}
+                        node = node->next;
+                    }
+                } else { // beta-word bucket
+                    r -= smooth + dt + da + tw;
+                    node = init_word_entry->nonzeros;
+                    while (node) {
+                        s += bbucket[node->topicid];
                         if (s > r) {new_topicid = node->topicid; break;}
                         node = node->next;
                     }
@@ -535,7 +598,7 @@ void gibbsSample(uint32 round) {
                 new_topicid = num_topics;
             }
             if (new_topicid < 0) {
-                fprintf(stderr, "***ERROR***: sample fail, r = %.16f, smooth = %.16f, dt = %.16f, tw = %.16f, s = %.16f\n", r, smooth, dt, tw, s);
+                fprintf(stderr, "***ERROR***: sample fail, r = %.16f, smooth = %.16f, dt = %.16f, da = %.16f, tw = %.16f, bw = %.16f, s = %.16f\n", r, smooth, dt, da, tw, bw, s);
                 fflush(stderr);
                 exit(2);
             }
