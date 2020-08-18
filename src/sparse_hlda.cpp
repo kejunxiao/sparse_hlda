@@ -787,6 +787,7 @@ int main(int argc, char **argv) {
     // allocate memory for topic_word_sums
     topic_word_sums = (uint32 *)calloc(1 + num_topics, sizeof(uint32));
     memset(topic_word_sums, 0, (1 + num_topics) * sizeof(uint32));
+    // allocate memory for beta_word_sums
     beta_word_sums = (uint32 *)calloc(1 + num_topics, sizeof(uint32));
     memset(beta_word_sums, 0, (1 + num_topics) * sizeof(uint32));
 
