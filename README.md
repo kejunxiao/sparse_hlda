@@ -25,7 +25,7 @@ Parameters:
     path of init beta-word distribution file  
 -output <dir>  
     dir of model(doc-topic, doc-alpha, topic-word, beta-word) file  
--num_topics <int>  
+-num_topics <int> 
     number of special topics, special topicid range from [0, num_topics), common topicid is num_topics  
 -alpha <float>  
     symmetric doc-topic prior probability, default is 0.05  
