@@ -222,7 +222,7 @@ inline static real initComm(real Vbeta_common, uint32 wordid) {
 
 /* public interface */
 void learnVocabFromDocs() {
-    uint32 a, len, isdoc;
+    uint32 len, isdoc;
     char ch, *token, buf[MAX_STRING];
     FILE *fin;
 
@@ -262,27 +262,26 @@ void learnVocabFromDocs() {
         }
     }
     printf("number of documents: %d, number of tokens: %d, vocabulary size: %d\n", num_docs, num_tokens, vocab_size);
+}
 
+void allocMem() {
+    uint32 a;
+
+    // allocate memory for topic_word_sums
+    topic_word_sums = (uint32 *)calloc(1 + num_topics, sizeof(uint32));
+    memset(topic_word_sums, 0, (1 + num_topics) * sizeof(uint32));
     // allocate memory for doc-topic distribution
     doc_topic_dist = (TopicNode *)calloc(num_docs * (1 + num_topics), sizeof(TopicNode));
     for (a = 0; a < num_docs * (1 + num_topics); a++) topicNodeInit(&doc_topic_dist[a], a % (1 + num_topics));
-    doc_alpha_dist = (TopicNode *)calloc(num_docs * (1 + num_topics), sizeof(TopicNode));
-    for (a = 0; a < num_docs * (1 + num_topics); a++) topicNodeInit(&doc_alpha_dist[a], a % (1 + num_topics));
     // allocate memory for topic-word distribution
     topic_word_dist = (TopicNode *)calloc(vocab_size * (1 + num_topics), sizeof(TopicNode));
     for (a = 0; a < vocab_size * (1 + num_topics); a++) topicNodeInit(&topic_word_dist[a], a % (1 + num_topics));
-    beta_word_dist = (TopicNode *)calloc(vocab_size * (1 + num_topics), sizeof(TopicNode));
-    for (a = 0; a < vocab_size * (1 + num_topics); a++) topicNodeInit(&beta_word_dist[a], a % (1 + num_topics));
     // allocate memory for doc_entries
     doc_entries = (DocEntry *)calloc(num_docs, sizeof(DocEntry));
     for (a = 0; a < num_docs; a++) docEntryInit(&doc_entries[a], a);
-    init_doc_entries = (DocEntry *)calloc(num_docs, sizeof(DocEntry));
-    for (a = 0; a < num_docs; a++) docEntryInit(&init_doc_entries[a], a);
     // allocate memory for word_entries
     word_entries = (WordEntry *)calloc(vocab_size, sizeof(WordEntry));
     for (a = 0; a < vocab_size; a++) wordEntryInit(&word_entries[a], a);
-    init_word_entries = (WordEntry *)calloc(vocab_size, sizeof(WordEntry));
-    for (a = 0; a < vocab_size; a++) wordEntryInit(&init_word_entries[a], a);
     // allocate memory for token_entries
     token_entries = (TokenEntry *)calloc(num_tokens, sizeof(TokenEntry));
 }
@@ -355,6 +354,26 @@ void loadDocs() {
             len++;
         }
     }
+}
+
+void allocInitMem() {
+    uint32 a;
+
+    // allocate memory for beta_word_sums
+    beta_word_sums = (uint32 *)calloc(1 + num_topics, sizeof(uint32));
+    memset(beta_word_sums, 0, (1 + num_topics) * sizeof(uint32));
+    // allocate memory for doc-alpha distribution
+    doc_alpha_dist = (TopicNode *)calloc(num_docs * (1 + num_topics), sizeof(TopicNode));
+    for (a = 0; a < num_docs * (1 + num_topics); a++) topicNodeInit(&doc_alpha_dist[a], a % (1 + num_topics));
+    // allocate memory for beta-word distribution
+    beta_word_dist = (TopicNode *)calloc(vocab_size * (1 + num_topics), sizeof(TopicNode));
+    for (a = 0; a < vocab_size * (1 + num_topics); a++) topicNodeInit(&beta_word_dist[a], a % (1 + num_topics));
+    // allocate memory for init_doc_entries
+    init_doc_entries = (DocEntry *)calloc(num_docs, sizeof(DocEntry));
+    for (a = 0; a < num_docs; a++) docEntryInit(&init_doc_entries[a], a);
+    // allocate memory for init_word_entries
+    init_word_entries = (WordEntry *)calloc(vocab_size, sizeof(WordEntry));
+    for (a = 0; a < vocab_size; a++) wordEntryInit(&init_word_entries[a], a);
 }
 
 void loadInitDocPrior() {
@@ -647,6 +666,10 @@ void saveModel(uint32 suffix) {
             fprintf(fout, " %d:%d", node->topicid, node->cnt);
             node = node->next;
         }
+        cnt = getDocTopicCnt(doc_topic_dist, num_topics, a, num_topics);
+        if (cnt > 0) {
+            fprintf(fout, " %d:%d", num_topics, cnt);
+        }
         fprintf(fout, "\n");
         memset(doc_str, 0, MAX_STRING);
     }
@@ -692,6 +715,23 @@ void saveModel(uint32 suffix) {
         memset(doc_str, 0, MAX_STRING);
     }
     fflush(fout);
+}
+
+void freeMem() {
+    free(topic_word_sums);
+    free(doc_topic_dist);
+    free(topic_word_dist);
+    free(doc_entries);
+    free(word_entries);
+    free(token_entries);
+}
+
+void freeInitMem() {
+    free(beta_word_sums);
+    free(doc_alpha_dist);
+    free(beta_word_dist);
+    free(init_doc_entries);
+    free(init_word_entries);
 }
 
 int main(int argc, char **argv) {
@@ -784,15 +824,10 @@ int main(int argc, char **argv) {
         save_step = atoi(argv[a + 1]);
     }
 
-    // allocate memory for topic_word_sums
-    topic_word_sums = (uint32 *)calloc(1 + num_topics, sizeof(uint32));
-    memset(topic_word_sums, 0, (1 + num_topics) * sizeof(uint32));
-    // allocate memory for beta_word_sums
-    beta_word_sums = (uint32 *)calloc(1 + num_topics, sizeof(uint32));
-    memset(beta_word_sums, 0, (1 + num_topics) * sizeof(uint32));
-
     // load documents and allocate memory for entries
     learnVocabFromDocs();
+    allocMem();
+    allocInitMem();
     loadDocs();
 
     // load init prior
@@ -811,17 +846,8 @@ int main(int argc, char **argv) {
     // save model
     saveModel(num_iters);
 
-    free(topic_word_sums);
-    free(beta_word_sums);
-    free(doc_topic_dist);
-    free(doc_alpha_dist);
-    free(topic_word_dist);
-    free(beta_word_dist);
-    free(doc_entries);
-    free(init_doc_entries);
-    free(word_entries);
-    free(init_word_entries);
-    free(token_entries);
+    freeMem();
+    freeInitMem();
 
     return 0;
 }
