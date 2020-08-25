@@ -7,7 +7,7 @@ typedef struct TopicNode_ {
     TopicNode_ *prev;
     TopicNode_ *next;
     uint32 cnt;
-    uint32 topicid;
+    int topicid;
 } TopicNode;
     
 typedef struct DocEntry_ {
