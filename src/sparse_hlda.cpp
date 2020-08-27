@@ -6,6 +6,7 @@
 #include <cstring>
 #include <ctime>
 #include <cmath>
+#include <map>
 #include <unordered_map>
 #include <string>
 
@@ -21,7 +22,7 @@ real beta = 0.01; // topic-word prior
 real beta_common = 0.01;
 real gamma0 = 0.1;
 real eta = 0.1; // prior confidence coefficient
-uint32 num_iters = 20;
+uint32 num_iters = 30;
 int save_step = -1;
 
 // train data related
@@ -35,21 +36,19 @@ std::unordered_map<uint32, std::string> id2doc;
 
 // model related
 uint32 *topic_word_sums = NULL;
-uint32 *beta_word_sums = NULL;
 TopicNode *doc_topic_dist = NULL;
-TopicNode *doc_alpha_dist = NULL;
 TopicNode *topic_word_dist = NULL;
-TopicNode *beta_word_dist = NULL;
 
 DocEntry *doc_entries = NULL;
-DocEntry *init_doc_entries = NULL;
 WordEntry *word_entries = NULL;
-WordEntry *init_word_entries = NULL;
 TokenEntry *token_entries = NULL;
+
+std::map<std::pair<uint32, int>, uint32> init_doc_topic;
+std::map<std::pair<int, uint32>, uint32> init_topic_word;
 
 /* helper functions */
 static void getWordFromId(uint32 wordid, char *word) {
-    std::unordered_map<uint32, std::string>::iterator itr = id2word.find(wordid);
+    auto itr = id2word.find(wordid);
     if (itr != id2word.end()) {
         strcpy(word, itr->second.c_str());
         return;
@@ -61,7 +60,7 @@ static void getWordFromId(uint32 wordid, char *word) {
 
 static uint32 getIdFromWord(const char *word) {
     std::string s(word);
-    std::unordered_map<std::string, uint32>::iterator itr = word2id.find(s);
+    auto itr = word2id.find(s);
     if (itr != word2id.end()) {
         return itr->second;
     } else { 
@@ -73,7 +72,7 @@ static uint32 getIdFromWord(const char *word) {
 }
 
 static void getDocFromId(uint32 docid, char *doc) {
-    std::unordered_map<uint32, std::string>::iterator itr = id2doc.find(docid);
+    auto itr = id2doc.find(docid);
     if (itr != id2doc.end()) {
         strcpy(doc, itr->second.c_str());
         return;
@@ -85,7 +84,7 @@ static void getDocFromId(uint32 docid, char *doc) {
 
 static uint32 getIdFromDoc(const char *doc) {
     std::string s(doc);
-    std::unordered_map<std::string, uint32>::iterator itr = doc2id.find(s);
+    auto itr = doc2id.find(s);
     if (itr != doc2id.end()) {
         return itr->second;
     } else { 
@@ -98,7 +97,7 @@ static uint32 getIdFromDoc(const char *doc) {
 
 static int docIsExists(const char *doc) {
     std::string s(doc);
-    std::unordered_map<std::string, uint32>::iterator itr = doc2id.find(s);
+    auto itr = doc2id.find(s);
     if (itr != doc2id.end()) {
         return 1;
     } else {
@@ -108,7 +107,7 @@ static int docIsExists(const char *doc) {
 
 static int wordIsExists(const char *word) {
     std::string s(word);
-    std::unordered_map<std::string, uint32>::iterator itr = word2id.find(s);
+    auto itr = word2id.find(s);
     if (itr != word2id.end()) {
         return 1;
     } else {
@@ -122,11 +121,11 @@ inline static int genRandTopicId() { return rand() % num_topics; }
 // denominators
 static void initDenomin(real *denominators, real Vbeta) {
     int t;
-    for (t = 0; t < num_topics; t++) denominators[t] = Vbeta + topic_word_sums[t] + eta * beta_word_sums[t];
+    for (t = 0; t < num_topics; t++) denominators[t] = Vbeta + topic_word_sums[t];
 }
 
 inline static void updateDenomin(real *denominators, real Vbeta, int topicid) {
-    denominators[topicid] = Vbeta + topic_word_sums[topicid] + eta * beta_word_sums[topicid];
+    denominators[topicid] = Vbeta + topic_word_sums[topicid];
 }
 
 // soomth-only bucket
@@ -173,20 +172,6 @@ static real updateD(real *dbucket, uint32 docid, real *denominators, int topicid
     return delta;
 }
 
-// doc-alpha bucket
-static real initA(real *abucket, DocEntry *init_doc_entry, real *denominators) {
-    TopicNode *node;
-    real da = 0;
-
-    node = init_doc_entry->nonzeros;
-    while (node) {
-        abucket[node->topicid] = eta * node->cnt * beta / denominators[node->topicid];
-        da += abucket[node->topicid];
-        node = node->next;
-    }
-    return da;
-}
-
 // topic-word bucket
 static real initT(real *tbucket, WordEntry *word_entry, uint32 docid, real *denominators) {
     TopicNode *node;
@@ -194,30 +179,16 @@ static real initT(real *tbucket, WordEntry *word_entry, uint32 docid, real *deno
 
     node = word_entry->nonzeros;
     while (node) {
-        tbucket[node->topicid] = (alpha + getDocTopicCnt(doc_topic_dist, num_topics, docid, node->topicid) + eta * getDocTopicCnt(doc_alpha_dist, num_topics, docid, node->topicid)) * node->cnt / denominators[node->topicid];
+        tbucket[node->topicid] = (alpha + getDocTopicCnt(doc_topic_dist, num_topics, docid, node->topicid)) * node->cnt / denominators[node->topicid];
         tw += tbucket[node->topicid];
         node = node->next;
     }
     return tw;
 }
 
-// beta-word bucket
-static real initB(real *bbucket, WordEntry *init_word_entry, uint32 docid, real *denominators) {
-    TopicNode *node;
-    real bw = 0;
-
-    node = init_word_entry->nonzeros;
-    while (node) {
-        bbucket[node->topicid] = (alpha + getDocTopicCnt(doc_topic_dist, num_topics, docid, node->topicid) + eta * getDocTopicCnt(doc_alpha_dist, num_topics, docid, node->topicid)) * eta * node->cnt / denominators[node->topicid];
-        bw += bbucket[node->topicid];
-        node = node->next;
-    }
-    return bw;
-}
-
 // common-word bucket
 inline static real initComm(real Vbeta_common, uint32 wordid) {
-    return (getTopicWordCnt(topic_word_dist, num_topics, num_topics, wordid) + eta * getTopicWordCnt(beta_word_dist, num_topics, num_topics, wordid) + beta_common) / (topic_word_sums[num_topics] + eta * beta_word_sums[num_topics] + Vbeta_common);
+    return (getTopicWordCnt(topic_word_dist, num_topics, num_topics, wordid) + beta_common) / (topic_word_sums[num_topics] + Vbeta_common);
 }
 
 /* public interface */
@@ -356,26 +327,6 @@ void loadDocs() {
     }
 }
 
-void allocInitMem() {
-    uint32 a;
-
-    // allocate memory for beta_word_sums
-    beta_word_sums = (uint32 *)calloc(1 + num_topics, sizeof(uint32));
-    memset(beta_word_sums, 0, (1 + num_topics) * sizeof(uint32));
-    // allocate memory for doc-alpha distribution
-    doc_alpha_dist = (TopicNode *)calloc(num_docs * (1 + num_topics), sizeof(TopicNode));
-    for (a = 0; a < num_docs * (1 + num_topics); a++) topicNodeInit(&doc_alpha_dist[a], a % (1 + num_topics));
-    // allocate memory for beta-word distribution
-    beta_word_dist = (TopicNode *)calloc(vocab_size * (1 + num_topics), sizeof(TopicNode));
-    for (a = 0; a < vocab_size * (1 + num_topics); a++) topicNodeInit(&beta_word_dist[a], a % (1 + num_topics));
-    // allocate memory for init_doc_entries
-    init_doc_entries = (DocEntry *)calloc(num_docs, sizeof(DocEntry));
-    for (a = 0; a < num_docs; a++) docEntryInit(&init_doc_entries[a], a);
-    // allocate memory for init_word_entries
-    init_word_entries = (WordEntry *)calloc(vocab_size, sizeof(WordEntry));
-    for (a = 0; a < vocab_size; a++) wordEntryInit(&init_word_entries[a], a);
-}
-
 void loadInitDocPrior() {
     char ch, buf[MAX_STRING], *token;
     int topicid;
@@ -410,8 +361,10 @@ void loadInitDocPrior() {
                 token = strtok(buf, ":"); // get topicid
                 topicid = atoi(token);
                 cnt = atoi(strtok(NULL, ":")); // get cnt
-                doc_entry = &init_doc_entries[docid];
-                addDocTopicCnt(doc_alpha_dist, num_topics, doc_entry, topicid, cnt);
+                cnt = eta * cnt;
+                init_doc_topic[std::make_pair(docid, topicid)] = cnt;
+                doc_entry = &doc_entries[docid];
+                addDocTopicCnt(doc_topic_dist, num_topics, doc_entry, topicid, cnt);
             }
             if (ch == '\n') {
                 if (num_read % 1000 == 0) {
@@ -470,9 +423,11 @@ void loadInitWordPrior() {
                 if (wordIsExists(token)) {
                     wordid = getIdFromWord(token);
                     cnt = atoi(strtok(NULL, ":")); // get cnt
-                    word_entry = &init_word_entries[wordid];
-                    addTopicWordCnt(beta_word_dist, num_topics, topicid, word_entry, cnt);
-                    beta_word_sums[topicid] += cnt;
+                    cnt = eta * cnt;
+                    init_topic_word[std::make_pair(topicid, wordid)] = cnt;
+                    word_entry = &word_entries[wordid];
+                    addTopicWordCnt(topic_word_dist, num_topics, topicid, word_entry, cnt);
+                    topic_word_sums[topicid] += cnt;
                     num_read++;
                 }
             }
@@ -492,13 +447,13 @@ void loadInitWordPrior() {
 
 void gibbsSample(uint32 round) {
     int new_topicid;
-    uint32 a, b, n_spec, init_n_spec;
-    real smooth, dt, da, tw, bw, spec_topic_r, s_spec, s_comm, r, s;
-    real *denominators, *sbucket, *dbucket, *abucket, *tbucket, *bbucket;
+    uint32 a, b, n_spec;
+    real smooth, dt, tw, spec_topic_r, s_spec, s_comm, r, s;
+    real *denominators, *sbucket, *dbucket, *tbucket;
     real Kalpha = num_topics * alpha, Vbeta = vocab_size * beta, Vbeta_common = vocab_size * beta_common, ab = alpha * beta;
     struct timeval tv1, tv2;
-    DocEntry *doc_entry, *init_doc_entry;
-    WordEntry *word_entry, *init_word_entry;
+    DocEntry *doc_entry;
+    WordEntry *word_entry;
     TokenEntry *token_entry;
     TopicNode *node;
 
@@ -506,9 +461,7 @@ void gibbsSample(uint32 round) {
     denominators = (real *)calloc(num_topics, sizeof(real));
     sbucket = (real *)calloc(num_topics, sizeof(real));
     dbucket = (real *)calloc(num_topics, sizeof(real));
-    abucket = (real *)calloc(num_topics, sizeof(real));
     tbucket = (real *)calloc(num_topics, sizeof(real));
-    bbucket = (real *)calloc(num_topics, sizeof(real));
 
     // init denominators
     memset(denominators, 0, num_topics * sizeof(real));
@@ -530,18 +483,13 @@ void gibbsSample(uint32 round) {
             memcpy(&tv1, &tv2, sizeof(struct timeval));
         }
         doc_entry = &doc_entries[a];
-        init_doc_entry = &init_doc_entries[a];
         // init doc-topic bucket
         memset(dbucket, 0, num_topics * sizeof(real));
         dt = initD(dbucket, doc_entry, denominators);
-        // init doc-alpha bucket
-        memset(abucket, 0, num_topics * sizeof(real));
-        da = initA(abucket, init_doc_entry, denominators);
         // iterate tokens
         for (b = 0; b < doc_entry->num_words; b++) {
             token_entry = &token_entries[doc_entry->idx + b];
             word_entry = &word_entries[token_entry->wordid];
-            init_word_entry = &init_word_entries[token_entry->wordid];
 
             addDocTopicCnt(doc_topic_dist, num_topics, doc_entry, token_entry->topicid, -1);
             addTopicWordCnt(topic_word_dist, num_topics, token_entry->topicid, word_entry, -1);
@@ -557,23 +505,19 @@ void gibbsSample(uint32 round) {
             // init topic-word bucket
             memset(tbucket, 0, num_topics * sizeof(real));
             tw = initT(tbucket, word_entry, a, denominators);
-            // init beta-word bucket
-            memset(bbucket, 0, num_topics * sizeof(real));
-            bw = initB(bbucket, init_word_entry, a, denominators);
 
             n_spec = doc_entry->num_words - getDocTopicCnt(doc_topic_dist, num_topics, a, num_topics);
-            init_n_spec = init_doc_entry->num_words - getDocTopicCnt(doc_alpha_dist, num_topics, a, num_topics);
-            spec_topic_r = (gamma0 + n_spec + eta * init_n_spec) / (1 + doc_entry->num_words + eta * init_doc_entry->num_words);
+            spec_topic_r = (gamma0 + n_spec) / (1 + doc_entry->num_words);
 
-            s_spec = spec_topic_r * (smooth + dt + da + tw + bw) / (Kalpha + n_spec + eta * init_n_spec);
+            s_spec = spec_topic_r * (smooth + dt + tw) / (Kalpha + n_spec);
             s_comm = (1. - spec_topic_r) * initComm(Vbeta_common, token_entry->wordid);
             r = (s_spec + s_comm) * rand() / RAND_MAX;
             // start sampling
             new_topicid = -1;
             s = 0;
             if (r < s_spec) { 
-                // sample in special topics, topicid range 0 ~ num_topics - 1
-                r = (smooth + dt + da + tw + bw) * rand() / (RAND_MAX + 1.);
+                // sample in special topics, topicid range [0, num_topics - 1]
+                r = (smooth + dt + tw) * rand() / (RAND_MAX + 1.);
                 if (r < smooth) { // smooth-only bucket
                     for (new_topicid = 0; new_topicid < num_topics; new_topicid++) {
                         s += sbucket[new_topicid];
@@ -587,27 +531,11 @@ void gibbsSample(uint32 round) {
                         if (s > r) {new_topicid = node->topicid; break;}
                         node = node->next;
                     }
-                } else if (r < smooth + dt + da) { // doc-alpha bucket
+                } else { // topic-word bucket
                     r -= smooth + dt;
-                    node = init_doc_entry->nonzeros;
-                    while (node) {
-                        s += abucket[node->topicid];
-                        if (s > r) {new_topicid = node->topicid; break;}
-                        node = node->next;
-                    }
-                } else if (r < smooth + dt + da + tw) { // topic-word bucket
-                    r -= smooth + dt + da;
                     node = word_entry->nonzeros;
                     while (node) {
                         s += tbucket[node->topicid];
-                        if (s > r) {new_topicid = node->topicid; break;}
-                        node = node->next;
-                    }
-                } else { // beta-word bucket
-                    r -= smooth + dt + da + tw;
-                    node = init_word_entry->nonzeros;
-                    while (node) {
-                        s += bbucket[node->topicid];
                         if (s > r) {new_topicid = node->topicid; break;}
                         node = node->next;
                     }
@@ -617,9 +545,9 @@ void gibbsSample(uint32 round) {
                 new_topicid = num_topics;
             }
             if (new_topicid < 0) {
-                fprintf(stderr, "***ERROR***: sample fail, r = %.16f, smooth = %.16f, dt = %.16f, da = %.16f, tw = %.16f, bw = %.16f, s = %.16f\n", r, smooth, dt, da, tw, bw, s);
+                fprintf(stderr, "***ERROR***: sample fail, r = %.16f, smooth = %.16f, dt = %.16f, tw = %.16f, s = %.16f\n", r, smooth, dt, tw, s);
                 fflush(stderr);
-                exit(2);
+                exit(1);
             }
             addDocTopicCnt(doc_topic_dist, num_topics, doc_entry, new_topicid, 1);
             addTopicWordCnt(topic_word_dist, num_topics, new_topicid, word_entry, 1);
@@ -663,10 +591,21 @@ void saveModel(uint32 suffix) {
         doc_entry = &doc_entries[a];
         node = doc_entry->nonzeros;
         while (node) {
-            fprintf(fout, " %d:%d", node->topicid, node->cnt);
+            cnt = node->cnt;
+            auto itr = init_doc_topic.find(std::make_pair(a, node->topicid));
+            if (itr != init_doc_topic.end()) {
+                cnt -= itr->second;
+            }
+            if (cnt > 0) {
+                fprintf(fout, " %d:%d", node->topicid, cnt);
+            }
             node = node->next;
         }
         cnt = getDocTopicCnt(doc_topic_dist, num_topics, a, num_topics);
+        auto itr = init_doc_topic.find(std::make_pair(a, num_topics));
+        if (itr != init_doc_topic.end()) {
+            cnt -= itr->second;
+        }
         if (cnt > 0) {
             fprintf(fout, " %d:%d", num_topics, cnt);
         }
@@ -685,6 +624,10 @@ void saveModel(uint32 suffix) {
         fprintf(fout, "%d", t); // common-topic == 1 + num_topics
         for (b = 0; b < vocab_size; b++) {
             cnt = getTopicWordCnt(topic_word_dist, num_topics, t, b);
+            auto itr = init_topic_word.find(std::make_pair(t, b));
+            if (itr != init_topic_word.end()) {
+                cnt -= itr->second;
+            }
             if (cnt > 0) {
                 getWordFromId(b, word_str);
                 fprintf(fout, " %s:%d", word_str, cnt);
@@ -724,14 +667,6 @@ void freeMem() {
     free(doc_entries);
     free(word_entries);
     free(token_entries);
-}
-
-void freeInitMem() {
-    free(beta_word_sums);
-    free(doc_alpha_dist);
-    free(beta_word_dist);
-    free(init_doc_entries);
-    free(init_word_entries);
 }
 
 int main(int argc, char **argv) {
@@ -778,7 +713,7 @@ int main(int argc, char **argv) {
         printf("\tlearning rate of asymmetric incremental doc-alpha/beta-word prior, default is 0.1\n");
 
         printf("-num_iters <int>\n");
-        printf("\tnumber of iteration, default is 20\n");
+        printf("\tnumber of iteration, default is 30\n");
 
         printf("-save_step <int>\n");
         printf("\tsave model every save_step iteration, default is -1 (no save)\n");
@@ -827,7 +762,6 @@ int main(int argc, char **argv) {
     // load documents and allocate memory for entries
     learnVocabFromDocs();
     allocMem();
-    allocInitMem();
     loadDocs();
 
     // load init prior
@@ -847,7 +781,6 @@ int main(int argc, char **argv) {
     saveModel(num_iters);
 
     freeMem();
-    freeInitMem();
 
     return 0;
 }
